@@ -514,7 +514,7 @@ class TestCreditPreflight:
 
         return MolicaVideo()
 
-    def test_the_standard_queue_is_not_billed_and_not_blocked(self, monkeypatch):
+    def test_the_standard_queue_is_not_billed_and_not_blocked(self, monkeypatch, tmp_path):
         """Only the fast queue is charged, so only it can be refused.
 
         Verified against the account ledger: standard-queue runs produced no
@@ -554,6 +554,8 @@ class TestCreditPreflight:
                 return {"video_url": "https://example.com/clip.mp4"}
 
             def download(self, url, destination):
+                # Mirrors MolicaClient.download: the parent folder is created on demand.
+                Path(destination).parent.mkdir(parents=True, exist_ok=True)
                 Path(destination).write_bytes(b"video")
                 return Path(destination)
 
@@ -562,10 +564,11 @@ class TestCreditPreflight:
             "prompt": "a cat",
             "model": "wan30video",
             "fast_model": False,
-            "output_path": str(Path("scratch") / "standard_queue_test.mp4"),
+            "output_path": str(tmp_path / "standard_queue_test.mp4"),
         })
         assert result.success, result.error
         assert created, "the standard queue must not be blocked by a balance"
+        assert (tmp_path / "standard_queue_test.mp4").exists()
         assert result.data["credits_required"] == 0
 
     def test_refuses_when_the_balance_is_below_the_cheapest_run(self, monkeypatch):
@@ -906,7 +909,7 @@ class TestModelFailover:
         order = MolicaVideo()._candidate_models([], "veo31pro", {"disable_failover": True})
         assert order == ["veo31pro"]
 
-    def test_a_busy_model_falls_over_to_the_next_one(self, monkeypatch):
+    def test_a_busy_model_falls_over_to_the_next_one(self, monkeypatch, tmp_path):
         """The first model answers ret=500; the next one serves the run."""
         from tools._molica import client as client_module
 
@@ -944,6 +947,8 @@ class TestModelFailover:
                 return {"video_url": "https://example.com/clip.mp4", "status": 1}
 
             def download(self, url, destination):
+                # Mirrors MolicaClient.download: the parent folder is created on demand.
+                Path(destination).parent.mkdir(parents=True, exist_ok=True)
                 Path(destination).write_bytes(b"video")
                 return Path(destination)
 
@@ -951,11 +956,12 @@ class TestModelFailover:
         result = MolicaVideo().execute({
             "prompt": "a cat",
             "model": "busy",
-            "output_path": str(Path("scratch") / "failover_test.mp4"),
+            "output_path": str(tmp_path / "failover_test.mp4"),
         })
         assert result.success, result.error
         assert created == ["busy", "working"]
         assert result.data["model"] == "working"
+        assert (tmp_path / "failover_test.mp4").exists()
 
     def test_all_models_busy_reports_what_was_tried(self, monkeypatch):
         from tools._molica import client as client_module
