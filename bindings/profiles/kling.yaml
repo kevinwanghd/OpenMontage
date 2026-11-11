@@ -1,0 +1,37 @@
+# Kling-first profile. Definition kept for M4 switch testing (MOD-09).
+#
+# Kling has no native dialogue lipsync, so the design's canonical degradation
+# example applies here: keyframe -> image-to-video (no lipsync) -> TTS ->
+# lipsync -> mux. The sub-stages are predeclared below, never assembled ad hoc
+# in code (MOD-06 / F14).
+version: "1.0"
+profile: kling
+description: "Kling primary; dialogue always goes through TTS + lipsync sub-stages."
+draft: false
+delivery:
+  target_platform: tiktok
+  target_resolution: 1080x1920
+  draft_resolution: 1080p
+  requires_upscale: false
+bindings:
+  video_primary:
+    chain:
+      - tool: kling_official_video
+        provider: kling
+        catalog_model: kling/kling-2-5
+        tier: paid
+        operations: [text_to_video, image_to_video]
+degradation:
+  - id: video_primary_no_native_lipsync
+    slot: video_primary
+    when:
+      missing_capabilities: [lipsync_from_dialogue, native_audio]
+    lost: [native_lipsync, native_audio]
+    path:
+      - stage: keyframe
+      - stage: image_to_video
+      - stage: tts_dialogue
+      - stage: lipsync
+      - stage: mux
+    approval_required: true
+    note: "Design §2.3 worked example: lost=native_lipsync, added=4 stages."

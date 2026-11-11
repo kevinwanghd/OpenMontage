@@ -1,0 +1,68 @@
+# Slot bindings shared by every profile.
+#
+# Profiles override any slot they bind themselves (video_primary, lipsync for
+# the model-specific chains). Keeping the non-video slots here means a new
+# model profile does not need to restate the TTS/compose/subtitle plumbing.
+#
+# P0 rule: these are declarations, not proof. Capability truth comes from
+# bindings/capability_catalog.yaml and doctor; an unbound/unverified path is
+# reported, never silently upgraded to GREEN.
+version: "1.0"
+bindings:
+  image_character_key:
+    chain:
+      - tool: bria_fal_image
+        provider: bria
+        catalog_model: bria/fibo-2
+        tier: paid
+        operations: [image_edit]
+
+  image_reference:
+    chain:
+      - tool: bria_fal_image
+        provider: bria
+        catalog_model: bria/fibo-2
+        tier: paid
+        operations: [image_edit]
+
+  tts_voice:
+    chain:
+      - tool: doubao_tts
+        provider: doubao
+        tier: paid
+        operations: [tts]
+
+  lipsync:
+    chain:
+      - tool: kling_lip_sync
+        provider: kling
+        tier: paid
+        operations: [lipsync]
+
+  music:
+    chain:
+      - tool: music_gen
+        provider: local
+        tier: local
+        operations: [music]
+
+  compose:
+    chain:
+      - tool: video_compose
+        provider: local
+        tier: local
+        operations: [compose]
+
+  subtitle:
+    chain:
+      - tool: subtitle_gen
+        provider: local
+        tier: local
+        operations: [subtitle]
+
+  upscale:
+    chain:
+      - tool: upscale
+        provider: local
+        tier: local
+        operations: [upscale]

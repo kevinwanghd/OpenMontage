@@ -1,0 +1,84 @@
+# P0 primary draft profile (A2 / MOD-03 / §12.10, v2.4 cost routing).
+#
+# Priority: free / credit-backed memberships first (molica, then Holopix) and
+# only when those are insufficient or exhausted fall back to Bailian
+# wan3.0-video at 480P (¥0.30/s). Delivery is 480P -> 1080x1920 upscale, which
+# is a DEGRADED path (DEL-01, F34) declared below -- not improvised at runtime.
+version: "1.0"
+profile: tiktok-draft
+description: "Free/credits first, wan3.0-video 480P fallback, 1080P delivery via upscale."
+draft: true
+cost_routing:
+  mode: free_first_then_paid
+  paid_fallback: dashscope_video
+  paid_fallback_resolution: 480p
+delivery:
+  target_platform: tiktok
+  target_resolution: 1080x1920
+  draft_resolution: 480p
+  requires_upscale: true
+  degradation_id: delivery_upscale
+
+bindings:
+  video_primary:
+    chain:
+      # 1. Free membership queue: no per-video cash cost.
+      - tool: molica_video
+        provider: molica
+        catalog_model: molica/wan30video
+        tier: free
+        session_auth: true
+        operations: [text_to_video, image_to_video, reference_to_video]
+      # 2. Credit-backed membership: prepaid credits, still no cash spend.
+      - tool: holopix_video
+        provider: holopix
+        catalog_model: holopix/seedance-2-0
+        tier: credit
+        session_auth: true
+        operations: [text_to_video, image_to_video, first_last_frame_to_video]
+      # 3. Paid fallback only after the free/credit tiers are exhausted.
+      - tool: dashscope_video
+        provider: dashscope
+        catalog_model: dashscope/wan3.0-video
+        tier: paid_fallback
+        cost_cny_per_s: 0.30
+        operations: [text_to_video, image_to_video]
+        capabilities:
+          output_resolutions: ["480p"]
+
+degradation:
+  - id: video_primary_free_tier_exhausted
+    slot: video_primary
+    when:
+      chain_degraded: true
+    lost: [free_tier]
+    path:
+      - stage: shot_gen
+        binding: dashscope_video
+        resolution: 480p
+    approval_required: true
+    note: "Free/credit tier unavailable -> wan3.0-video 480P at ¥0.30/s; estimate and approval required first (NFR-01)."
+
+  - id: video_primary_no_native_lipsync
+    slot: video_primary
+    when:
+      missing_capabilities: [lipsync_from_dialogue]
+    lost: [native_lipsync]
+    path:
+      - stage: tts_dialogue
+      - stage: lipsync
+      - stage: mux
+    approval_required: true
+    note: "Draft video binding cannot do native dialogue lipsync; add TTS + lipsync + mux sub-stages."
+
+  - id: delivery_upscale
+    slot: video_primary
+    when:
+      missing_output_resolutions: ["1080p"]
+    lost: [native_1080p]
+    path:
+      - stage: delivery_upscale
+        binding: upscale
+    approval_required: false
+    declared: true
+    note: "480P draft -> 1080x1920 upscale; marked DEGRADED in delivery artifact (DEL-01/F34)."

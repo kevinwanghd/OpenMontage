@@ -1,0 +1,42 @@
+# Local provider account / session state (MOD-03, F15, R25).
+#
+# This file is local state, refreshed by the `om` account commands in M1. It is
+# NEVER derived from a live API call in M0. Doctor uses it to separate three
+# different failures that all look like "tool unavailable":
+#
+#   * credential missing        -> tool registry status is unavailable  -> BLOCKED
+#   * credits / quota exhausted -> status EXHAUSTED here                -> UNAVAILABLE
+#   * session token unverified  -> session_verified: false              -> DEGRADED
+#
+# ``session_verified: false`` deliberately means "a token exists but this build
+# has not proven the session is live" -- it must never be reported GREEN (F15).
+version: "1.0"
+as_of: "2026-11-06"
+providers:
+  molica_video:
+    status: UNKNOWN          # AVAILABLE | EXHAUSTED | UNKNOWN
+    session_verified: false
+    credits_remaining: null
+    note: "Membership session token (MOLICA_TOKEN); M1 verifies the session live."
+  holopix_video:
+    status: EXHAUSTED
+    session_verified: false
+    credits_remaining: 0
+    note: "P0: compute points exhausted (Nov 2026); keep registered, recovers next month (MOD-03)."
+  dashscope_video:
+    status: UNKNOWN
+    session_verified: false
+    credits_remaining: null
+    note: "Bailian/DashScope API key; added by WP-F (M0 mock contract only)."
+  seedance_ark:
+    status: UNKNOWN
+    session_verified: false
+    credits_remaining: null
+  kling_official_video:
+    status: UNKNOWN
+    session_verified: false
+    credits_remaining: null
+  veo_video:
+    status: UNKNOWN
+    session_verified: false
+    credits_remaining: null

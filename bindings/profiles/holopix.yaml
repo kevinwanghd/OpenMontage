@@ -1,0 +1,33 @@
+# Holopix-only profile. Kept registered on purpose (MOD-03 / v2.1): the account
+# is out of compute points this month, so it must report UNAVAILABLE rather than
+# disappear. Re-enable by flipping bindings/account_state.yaml when points return.
+version: "1.0"
+profile: holopix
+description: "Holopix Seedance membership; currently credits exhausted -> UNAVAILABLE."
+draft: true
+delivery:
+  target_platform: tiktok
+  target_resolution: 1080x1920
+  draft_resolution: 480p
+  requires_upscale: true
+  degradation_id: delivery_upscale
+bindings:
+  video_primary:
+    chain:
+      - tool: holopix_video
+        provider: holopix
+        catalog_model: holopix/seedance-2-0
+        tier: credit
+        session_auth: true
+        operations: [text_to_video, image_to_video, first_last_frame_to_video]
+degradation:
+  - id: delivery_upscale
+    slot: video_primary
+    when:
+      missing_output_resolutions: ["1080p"]
+    lost: [native_1080p]
+    path:
+      - stage: delivery_upscale
+        binding: upscale
+    declared: true
+    approval_required: false
