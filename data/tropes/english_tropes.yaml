@@ -1,0 +1,114 @@
+# English original trope library (BEAT-06, D7/A3, WEDGE-01).
+#
+# Borrow the IDEA LAYER only: trope, structure, emotional beat pattern.
+# Never copy specific plot, characters, dialogue or text from an existing work.
+# Every trope below is written as a generic premise that still needs an
+# original English script. Cultural adaptation targets the P0 first-batch
+# hypothesis (English-speaking women, US/UK/CA/AU, 18-34), not a confirmed
+# market conclusion.
+version: "1.0"
+audience_hypothesis: "English-speaking women, primarily US/UK/CA/AU, 18-34 (P0 first-batch hypothesis; confirm in brief)"
+originality_policy:
+  borrow: "idea layer: trope, structure, emotional beat pattern, hook device"
+  avoid: "specific plot, character, dialogue or text from any existing work; no substantial similarity"
+  human_review: "story editor confirms no protected expression was reproduced"
+min_tropes: 5
+
+tropes:
+  - id: hidden_heir
+    name: "Hidden Heir"
+    summary: "An ordinary woman discovers the family empire she was written out of belongs to her."
+    conflict_engine: "Class gap plus a family that denies her claim; every ally has a motive."
+    hook_devices:
+      - "Open on a public humiliation that reveals a document she should not have."
+      - "First line: someone calls her by a name she has never used."
+      - "The person who ruined her is the one who now needs her signature."
+    cultural_notes: "Self-made individualism and inheritance drama read well in US/UK/CA/AU; keep wealth signifiers specific and contemporary (boardroom, prenup, trust fund), not monarchical."
+    sample_premise_en: "A hotel maid is handed a sealed envelope by a dying guest: it names her as the sole heir to the hotel group that fired her mother."
+    dialogue_levers:
+      - "Power asymmetry lives in forms of address (first name vs. Ms. + surname)."
+      - "Let the antagonist stay polite; politeness makes the threat land harder."
+
+  - id: contract_marriage
+    name: "Contract Marriage"
+    summary: "Two people with incompatible goals sign a time-boxed marriage and start meaning it."
+    conflict_engine: "The terms that protect them become the reasons they cannot be honest."
+    hook_devices:
+      - "Open at the signing, with one clause already broken."
+      - "A stranger corrects the contract in red pen before the first kiss."
+      - "The wedding photo is taken for an audience that is watching from the door."
+    cultural_notes: "Marriage-as-negotiation is legible across the English-speaking West; avoid royalty-only framing and anchor stakes in careers, custody or visas."
+    sample_premise_en: "To keep her late father's bookstore, she marries the developer who wants to bulldoze it, on the condition that neither of them reads the fine print."
+    dialogue_levers:
+      - "Negotiation scenes double as flirtation when the stakes are concrete."
+      - "Small domestic errands (groceries, lost keys) break the contract's formality."
+
+  - id: revenge_at_the_altar
+    name: "Revenge at the Altar"
+    summary: "A betrayed woman chooses the wedding itself as the place to settle the score."
+    conflict_engine: "Public ritual versus private truth; walking away costs the same as staying."
+    hook_devices:
+      - "Open mid-ceremony with the officiant asking for objections and her hand already raised."
+      - "She plays a recording the groom thought was deleted."
+      - "The rival's dress is the tell."
+    cultural_notes: "Public accountability and social image are strong drivers in the target audience; keep revenge proportionate and legally grounded rather than violent."
+    sample_premise_en: "At her own rehearsal dinner, a bride swaps the slideshow for evidence that her fiance and her sister have been running her company into the ground."
+    dialogue_levers:
+      - "Revenge lines work best when calm and specific, not shouted."
+      - "Give one guest a conscience so the humiliation has a human cost."
+
+  - id: second_chance_reunion
+    name: "Second-Chance Reunion"
+    summary: "Former lovers meet again after the choice that separated them proves reversible."
+    conflict_engine: "The reason they split is still true, but so is the reason they stayed."
+    hook_devices:
+      - "Open on a reunion where one of them is holding a child the other has never met."
+      - "A shared song starts before either can leave the room."
+      - "The apology is interrupted by the exact problem that caused the breakup."
+    cultural_notes: "Second-chance romance suits the 25-40 segment of the audience; make the original separation specific (career, family duty, a lie) rather than vague."
+    sample_premise_en: "A wedding planner is hired for the wedding of the man who left her at city hall ten years ago, and his fiancee wants her to plan the exact ceremony they never had."
+    dialogue_levers:
+      - "Old shorthand and unfinished sentences signal history without exposition."
+      - "The new partner should be likable; the tension is timing, not villainy."
+
+  - id: fake_dating
+    name: "Fake Dating"
+    summary: "Two people perform a relationship for an audience and get caught by their own performance."
+    conflict_engine: "The lie is useful, the feelings are not; exposure threatens both lives."
+    hook_devices:
+      - "Open on a staged kiss that one of them did not agree to."
+      - "A nosy relative asks a question only a real couple could answer."
+      - "The contract ends at midnight, and neither leaves."
+    cultural_notes: "Social-media scrutiny makes fake dating current in the target audience; ground the fake relationship in a concrete audience (family, employer, followers)."
+    sample_premise_en: "A broke violinist agrees to date a chef for one viral season of his restaurant, until his ex returns and asks her to keep the act going."
+    dialogue_levers:
+      - "The couple's private debrief after each public scene is where the truth leaks."
+      - "Let one of them be better at lying and the other better at noticing."
+
+  - id: undercover_boss
+    name: "Undercover Boss"
+    summary: "A person with power hides their identity to judge someone, and is judged in return."
+    conflict_engine: "The disguise protects the truth and destroys the trust it was meant to test."
+    hook_devices:
+      - "Open with a name tag being swapped in a locker room."
+      - "The person being evaluated gives the disguised boss advice that will be used against them."
+      - "The mask slips in the one room where it matters."
+    cultural_notes: "Workplace hierarchy and meritocracy language resonate in the US/UK; avoid glamorizing surveillance and give the underdog real competence."
+    sample_premise_en: "The new CEO of a family restaurant chain works a month as a line cook and falls for the shift manager who is about to be fired for telling the truth about the books."
+    dialogue_levers:
+      - "Dramatic irony carries scenes: the audience knows what the other character does not."
+      - "Keep the disguise mechanics simple and physical (badge, apron, accent)."
+
+  - id: secret_protector
+    name: "Secret Protector"
+    summary: "Someone quietly removes the obstacles in another's life until the protection itself becomes the threat."
+    conflict_engine: "Care without consent; safety at the cost of agency."
+    hook_devices:
+      - "Open on a threat being neutralized before the protagonist learns it existed."
+      - "A stranger returns a dropped item already repaired."
+      - "The rescuer's alibi is the protagonist's own schedule."
+    cultural_notes: "Protective romance is popular, but consent and agency must be explicit for the target audience; frame control as a flaw to confront, not a virtue to reward."
+    sample_premise_en: "A nurse notices that every man who harasses her at the hospital is quietly transferred, and traces the pattern to the quiet surgeon who claims he has never met her."
+    dialogue_levers:
+      - "The protagonist's competence should force the protector to reveal themselves."
+      - "Let the final choice rest with the protected person, not the rescuer."
