@@ -123,9 +123,10 @@ class MediaLocator:
         try:
             target.relative_to(root_resolved)
         except ValueError:
+            # X-12: never echo absolute server paths in an API envelope.
             raise _forbidden(
                 f"media path '{rel_path}' escapes the {kind} root",
-                {"path": rel_path, "root": str(root_resolved)},
+                {"path": rel_path},
             )
         if must_exist and not target.is_file():
             raise ApiError(

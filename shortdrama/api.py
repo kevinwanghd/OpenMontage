@@ -10,6 +10,10 @@ Two layers:
 - :func:`create_app` — FastAPI wiring. Every rejection becomes the shared
   §10.3 error envelope, including framework request-validation failures.
 
+Library endpoints are additive within ``/api/v1`` (X-16); the media surface is
+local-only by default and enforces same-origin CSRF, root confinement and
+asset-existence checks before serving bytes (UI-02).
+
 Review discovery uses the T2/T3 on-disk layout
 (``projects/<project>/<episode>/{reviews,events}.jsonl``). Episode endpoints
 read ``episode_manifest.json`` either at the project root or the episode dir.
@@ -17,9 +21,11 @@ M0: local files only, zero external API calls.
 """
 from __future__ import annotations
 
+import hmac
 import json
 from pathlib import Path
 from typing import Any, Literal, Optional
+from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, Header, Query, Request
 from fastapi.exceptions import RequestValidationError
@@ -69,13 +75,115 @@ _EPISODE_VALIDATOR = Draft202012Validator(
 
 LIBRARY_KINDS = {"shot", "keyframe", "character", "voice", "music", "reference"}
 
+# UI-02: the API is local-only by default. Requests whose Host is not loopback
+# are rejected before routing unless ``allow_remote=True`` (which in turn
+# requires a bearer token). "testclient"/"testserver" are the in-process ASGI
+# test hosts and are treated as loopback so the contract suite can exercise the
+# app without opening a socket.
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "testclient", "testserver"})
+
+# Defence-in-depth for media responses: never let a browser re-interpret the
+# bytes from a different origin (X-12 / UI-02).
+_SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "Cross-Origin-Resource-Policy": "same-origin",
+}
+
 _ERROR_RESPONSES = {
     400: {"model": ErrorEnvelope, "description": "Request rejected (machine code in body)"},
-    403: {"model": ErrorEnvelope, "description": "Path escapes its root"},
+    401: {"model": ErrorEnvelope, "description": "Authentication required (remote mode)"},
+    403: {"model": ErrorEnvelope, "description": "Path escapes its root / cross-origin request"},
     404: {"model": ErrorEnvelope, "description": "Not found"},
     409: {"model": ErrorEnvelope, "description": "Stale review / idempotency conflict"},
     422: {"model": ErrorEnvelope, "description": "Validation failure"},
 }
+
+
+def _request_hostname(request: Request) -> str:
+    """Return the Host header's hostname (port stripped), or "" if malformed."""
+    raw = request.headers.get("host", "")
+    try:
+        return (urlsplit(f"//{raw}").hostname or "").lower()
+    except ValueError:
+        return ""
+
+
+def _same_origin(origin: str, request: Request) -> bool:
+    """True when ``Origin`` names the exact scheme/host/port being served."""
+    if origin.strip().lower() == "null":
+        return False
+    try:
+        sent = urlsplit(origin)
+        served = urlsplit(str(request.url))
+        sent_port = sent.port or (443 if sent.scheme == "https" else 80)
+        served_port = served.port or (443 if served.scheme == "https" else 80)
+    except ValueError:
+        return False
+    if sent.scheme not in ("http", "https") or not sent.hostname:
+        return False
+    return (
+        sent.scheme == served.scheme
+        and sent.hostname == served.hostname
+        and sent_port == served_port
+    )
+
+
+def _access_rejection(
+    request: Request,
+    *,
+    allow_remote: bool,
+    auth_token: Optional[str],
+) -> Optional[ApiError]:
+    """Local-only + auth + same-origin CSRF checks (UI-02).
+
+    Returns the §10.3 rejection to emit, or ``None`` to let the request through.
+    Rejections reuse ``VALIDATION_ERROR`` because the frozen error catalogue
+    (§10.3) has no dedicated CSRF/auth code yet; what/fix still carry the
+    machine-actionable detail.
+    """
+    host = _request_hostname(request)
+    if not allow_remote and host not in _LOOPBACK_HOSTS:
+        return ApiError(
+            ErrorCode.VALIDATION_ERROR,
+            f"request Host '{host or '(missing)'}' is not a loopback address",
+            "keep the API bound to localhost; enable remote mode with a bearer token to expose it",
+            recovery="fix-then-retry",
+            http_status=403,
+            context={"host": host},
+        )
+
+    if auth_token:
+        provided = request.headers.get("authorization", "")
+        if not hmac.compare_digest(provided, f"Bearer {auth_token}"):
+            return ApiError(
+                ErrorCode.VALIDATION_ERROR,
+                "missing or invalid bearer token",
+                "send Authorization: Bearer <token>",
+                recovery="ask-human",
+                http_status=401,
+            )
+
+    origin = request.headers.get("origin")
+    if origin is not None:
+        if not _same_origin(origin, request):
+            return ApiError(
+                ErrorCode.VALIDATION_ERROR,
+                f"cross-origin request from '{origin}' rejected",
+                "call the API from its own origin",
+                recovery="fix-then-retry",
+                http_status=403,
+                context={"origin": origin},
+            )
+    elif request.headers.get("sec-fetch-site", "").lower() == "cross-site":
+        return ApiError(
+            ErrorCode.VALIDATION_ERROR,
+            "cross-site request rejected (Sec-Fetch-Site: cross-site)",
+            "call the API from its own origin",
+            recovery="fix-then-retry",
+            http_status=403,
+            context={"sec_fetch_site": "cross-site"},
+        )
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -100,6 +208,7 @@ class MockAssetLibrary:
         kind: str,
         *,
         text: Optional[str] = None,
+        image: Optional[str] = None,
         character_id: Optional[str] = None,
         min_sim: float = 0.0,
         reason_code: Optional[str] = None,
@@ -114,7 +223,16 @@ class MockAssetLibrary:
                 http_status=422,
                 context={"page": page, "page_size": page_size},
             )
+        if text is not None and image is not None:
+            raise ApiError(
+                ErrorCode.VALIDATION_ERROR,
+                "text and image filters cannot be combined",
+                "pass either text or image, not both",
+                http_status=422,
+                context={"text": text, "image": image},
+            )
         needle = (text or "").strip().lower()
+        image_ref = (image or "").strip().lower()
         matches = []
         for asset in self._assets:
             if asset.get("kind") != kind:
@@ -130,6 +248,18 @@ class MockAssetLibrary:
             if needle:
                 haystack = " ".join([str(asset.get("text", "")), *asset.get("tags", [])]).lower()
                 if needle not in haystack:
+                    continue
+            if image_ref:
+                # Mock stand-in for LIB-05 visual search: match the declared
+                # image reference (metadata wins over the on-disk media path).
+                metadata = asset.get("metadata") or {}
+                reference = str(
+                    asset.get("image_ref")
+                    or metadata.get("image_ref")
+                    or asset.get("media_path")
+                    or ""
+                ).lower()
+                if image_ref not in reference:
                     continue
             matches.append(asset)
         matches.sort(key=lambda a: a["asset_id"])
@@ -696,11 +826,30 @@ class ShortdramaService:
 
     def library_query(self, kind: str, **filters: Any) -> dict[str, Any]:
         self._require_kind(kind)
+        # Additive UI-01 filter: providers that predate image search still work
+        # for text/metadata queries because the kwarg is only sent when used.
+        if filters.get("image") is None:
+            filters.pop("image", None)
         return self.library.query(kind, **filters)
 
-    def library_get(self, kind: str, asset_id: str) -> dict[str, Any]:
-        self._require_kind(kind)
-        asset = self.library.get(asset_id)
+    @staticmethod
+    def _asset_not_found(asset_id: str) -> ApiError:
+        return ApiError(
+            ErrorCode.LIBRARY_ASSET_NOT_FOUND,
+            f"asset '{asset_id}' not found",
+            "check asset_id or re-run the library query",
+            http_status=404,
+            context={"asset_id": asset_id},
+        )
+
+    def _library_asset(self, kind: str, asset_id: str) -> dict[str, Any]:
+        """Fetch an asset and enforce that it belongs to ``kind`` (UI-02)."""
+        try:
+            asset = self.library.get(asset_id)
+        except KeyError:  # lib.asset_library.AssetNotFoundError is a KeyError
+            raise self._asset_not_found(asset_id) from None
+        if asset is None:
+            raise self._asset_not_found(asset_id)
         if asset.get("kind") != kind:
             raise ApiError(
                 ErrorCode.LIBRARY_ASSET_NOT_FOUND,
@@ -709,6 +858,11 @@ class ShortdramaService:
                 http_status=404,
                 context={"asset_id": asset_id, "kind": kind},
             )
+        return asset
+
+    def library_get(self, kind: str, asset_id: str) -> dict[str, Any]:
+        self._require_kind(kind)
+        asset = self._library_asset(kind, asset_id)
         return {"provider": "mock", "asset": asset}
 
     # --- media ------------------------------------------------------------
@@ -721,6 +875,13 @@ class ShortdramaService:
 
     def locate_library_media(self, kind: str, asset_id: str, rel_path: str) -> Path:
         self._require_kind(kind)
+        # Validate kind/asset_id as single path segments BEFORE touching the
+        # library, so traversal is always reported as MEDIA_PATH_FORBIDDEN
+        # rather than leaking "not found" for a malformed id.
+        self.locator.library_asset_root(kind, asset_id)
+        # Legal-access check: only assets that exist in the library and match
+        # the requested kind may serve media (UI-02).
+        self._library_asset(kind, asset_id)
         return self.locator.locate_library(kind, asset_id, rel_path)
 
 
@@ -734,8 +895,18 @@ def create_app(
     projects_dir: Optional[Path] = None,
     library_dir: Optional[Path] = None,
     library: Optional[Any] = None,
+    allow_remote: bool = False,
+    auth_token: Optional[str] = None,
 ) -> FastAPI:
-    """Build the ASGI app. Tests inject a tmp projects root and a mock library."""
+    """Build the ASGI app. Tests inject a tmp projects root and a mock library.
+
+    UI-02 security posture: the server is local-only unless ``allow_remote`` is
+    set, and remote mode refuses to start without a bearer ``auth_token``.
+    Every request is also checked for same-origin CSRF (``Origin`` /
+    ``Sec-Fetch-Site``), and replies carry nosniff + same-origin CORP headers.
+    """
+    if allow_remote and not auth_token:
+        raise ValueError("remote exposure requires auth_token (UI-02)")
     service = ShortdramaService(projects_dir, library=library, library_dir=library_dir)
 
     app = FastAPI(
@@ -747,6 +918,21 @@ def create_app(
 
     def get_service() -> ShortdramaService:
         return app.state.service
+
+    @app.middleware("http")
+    async def _access_guard(request: Request, call_next: Any) -> Any:
+        # Runs outside ExceptionMiddleware, so rejections are returned directly
+        # in the shared envelope rather than raised.
+        rejection = _access_rejection(
+            request, allow_remote=allow_remote, auth_token=auth_token
+        )
+        if rejection is not None:
+            response = JSONResponse(rejection.to_envelope(), status_code=rejection.http_status)
+        else:
+            response = await call_next(request)
+        for name, value in _SECURITY_HEADERS.items():
+            response.headers.setdefault(name, value)
+        return response
 
     @app.exception_handler(ApiError)
     async def _api_error_handler(_request: Request, exc: ApiError) -> JSONResponse:
@@ -872,6 +1058,7 @@ def create_app(
     def library_query(
         kind: str,
         text: Optional[str] = None,
+        image: Optional[str] = None,
         character_id: Optional[str] = None,
         min_sim: float = Query(default=0.0, ge=0, le=1),
         reason_code: Optional[str] = None,
@@ -882,6 +1069,7 @@ def create_app(
         return svc.library_query(
             kind,
             text=text,
+            image=image,
             character_id=character_id,
             min_sim=min_sim,
             reason_code=reason_code,
