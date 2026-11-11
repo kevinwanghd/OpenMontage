@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/review_decision",
+  "title": "Review Decision",
+  "description": "Append-only human review log entry for short-drama shot/stage review (REV-01/03/13). Distinct from review.schema.json (Reviewer-agent stage findings); do not extend that closed contract. reviews.jsonl is a stream of these records; effective decision resolved via supersedes.",
+  "type": "object",
+  "required": ["version", "review_id", "project", "episode", "stage", "event_type"],
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "review_id": { "type": "string" },
+    "project": { "type": "string" },
+    "episode": { "type": "string" },
+    "stage": { "type": "string", "description": "brief/beat_map/script/character_cast/scene_plan/keyframe/shot_gen/assembly/delivery" },
+    "slot": { "type": "string", "description": "Shot id or stage artifact id, e.g. sh_012" },
+    "event_type": { "type": "string", "enum": ["item", "decision", "undo"] },
+    "candidates": { "type": "array", "items": { "type": "string" }, "description": "Media paths" },
+    "criteria": { "type": "array", "items": { "type": "string" } },
+    "ref_context": { "type": "object", "description": "Reference images + character's approved historical shots" },
+    "cost_if_approved_usd": { "type": "number", "minimum": 0 },
+    "priority": { "type": "integer", "minimum": 0, "description": "0=must-view 1=recommended 2=skippable" },
+    "priority_reasons": { "type": "array", "items": { "type": "string" } },
+    "face_similarity": { "type": ["number", "null"], "description": "null = no character / UNKNOWN" },
+    "candidate_version": { "type": "string" },
+    "review_version": { "type": "string" },
+    "decision": {
+      "type": "object",
+      "required": ["action", "decided_at", "decided_by"],
+      "properties": {
+        "action": { "type": "string", "enum": ["accept", "reject", "pick_variant", "edit_prompt", "send_back", "skip"] },
+        "chosen_candidate": { "type": ["string", "null"] },
+        "reason_code": { "type": ["string", "null"] },
+        "note": { "type": "string" },
+        "prompt_patch": { "type": ["string", "null"] },
+        "override": { "type": "boolean", "default": false, "description": "Human resolves an UNKNOWN with sufficient visible evidence" },
+        "evidence": { "type": "string", "description": "Required when override=true; evidence/person/time" },
+        "decided_at": { "type": "string" },
+        "decided_by": { "type": "string", "default": "owner" }
+      },
+      "additionalProperties": false
+    },
+    "supersedes": { "type": ["string", "null"], "description": "review_id this undo/decision compensates (append-only, never rewrite)" },
+    "created_at": { "type": "string" },
+    "metadata": { "type": "object" }
+  },
+  "additionalProperties": false
+}

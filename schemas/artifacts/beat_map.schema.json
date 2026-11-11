@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/beat_map",
+  "title": "Beat Map",
+  "description": "Retention skeleton independent of script (BEAT-01/02/03). Duration-configurable; structure produced by the declared scaling function. Hook density machine-checked, hook validity human-confirmed.",
+  "type": "object",
+  "required": ["version", "duration_s", "segments", "beats"],
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "duration_s": { "type": "number", "minimum": 1 },
+    "scaling_rule": { "type": "string", "description": "Id/version of the deterministic duration->structure scaling function (BEAT-01)" },
+    "segments": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["segment_id", "label", "start_s", "end_s"],
+        "properties": {
+          "segment_id": { "type": "string" },
+          "label": { "type": "string", "description": "HOOK/SETUP/RISING/MID_TURN/ESCALATION/CLIMAX/RESOLUTION" },
+          "start_s": { "type": "number", "minimum": 0 },
+          "end_s": { "type": "number", "minimum": 0 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "beats": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["beat_id", "start_s", "end_s"],
+        "properties": {
+          "beat_id": { "type": "string" },
+          "label": { "type": "string" },
+          "start_s": { "type": "number", "minimum": 0 },
+          "end_s": { "type": "number", "minimum": 0 },
+          "hook_candidate": { "type": "boolean", "default": false },
+          "turn": { "type": "boolean", "default": false, "description": "Beat transition / information reversal" },
+          "cliffhanger": { "type": "boolean", "default": false }
+        },
+        "additionalProperties": false
+      }
+    },
+    "metadata": { "type": "object" }
+  },
+  "additionalProperties": false
+}

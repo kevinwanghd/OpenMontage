@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/drama_character",
+  "title": "Drama Character",
+  "description": "Live-action short-drama character card (CHAR-01/03). First-class entity anchoring cross-shot identity. Distinct from the cartoon-rig character_design schema; do not extend that closed contract.",
+  "type": "object",
+  "required": ["version", "character_id", "name", "canonical_description"],
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "character_id": { "type": "string", "description": "Stable id, e.g. ch_ling" },
+    "name": { "type": "string" },
+    "canonical_description": { "type": "string", "description": "Fixed age/face/hair/body/wardrobe description reused verbatim across shots" },
+    "wardrobe": {
+      "type": "array",
+      "description": "Multi-angle costume/reference image group",
+      "items": {
+        "type": "object",
+        "required": ["path"],
+        "properties": {
+          "path": { "type": "string" },
+          "angle": { "type": "string", "description": "e.g. front/three_quarter/profile/back" },
+          "description": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "face_embedding_ref": { "type": "string", "description": "Reference to independent versioned identity-vector store (keyed by embedder+model); NOT stored inline, NOT mixed with corpus CLIP space" },
+    "voice_id": { "type": "string" },
+    "age_range": { "type": "string" },
+    "used_in_episodes": { "type": "array", "items": { "type": "string" } },
+    "metadata": { "type": "object" }
+  },
+  "additionalProperties": false
+}

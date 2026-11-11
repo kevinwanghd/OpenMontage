@@ -111,7 +111,63 @@
       },
       "minItems": 1
     },
+    "shots": {
+      "type": "array",
+      "description": "Drama shot layer (short-drama pipeline). Optional additive layer; legacy pipelines use scenes[] only. Each shot is a single timed camera setup.",
+      "items": {
+        "type": "object",
+        "required": ["shot_id", "duration_s"],
+        "properties": {
+          "shot_id": { "type": "string" },
+          "beat_id": { "type": "string" },
+          "duration_s": { "type": "number", "minimum": 0 },
+          "shot_language": { "$ref": "#/$defs/shot_language" },
+          "single_action": { "type": "string", "description": "One unique action per shot" },
+          "dialogue": {
+            "type": "object",
+            "required": ["speaker", "text"],
+            "properties": {
+              "speaker": { "type": "string", "description": "character_id" },
+              "text": { "type": "string" },
+              "duration_s": { "type": "number", "minimum": 0 }
+            },
+            "additionalProperties": false
+          },
+          "visual_evidence": { "type": "string" },
+          "hook_candidate": { "type": "boolean", "default": false },
+          "reference_character_ids": { "type": "array", "items": { "type": "string" } },
+          "reference_scene_ids": { "type": "array", "items": { "type": "string" } },
+          "needs_lipsync": { "type": "boolean", "default": false },
+          "candidates": { "type": "integer", "minimum": 1, "default": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
     "metadata": { "type": "object" }
+  },
+  "$defs": {
+    "shot_language": {
+      "type": "object",
+      "description": "Structured cinematography vocabulary (shared by drama shots)",
+      "properties": {
+        "shot_size": {
+          "type": "string",
+          "enum": ["extreme_wide", "wide", "medium_wide", "medium", "medium_close", "close_up", "extreme_close_up", "over_shoulder", "insert", "establishing"]
+        },
+        "camera_movement": {
+          "type": "string",
+          "enum": ["static", "pan_left", "pan_right", "tilt_up", "tilt_down", "dolly_in", "dolly_out", "tracking_left", "tracking_right", "crane_up", "crane_down", "handheld", "steadicam", "whip_pan", "orbital", "zoom_in", "zoom_out", "rack_focus"]
+        },
+        "lens_mm": { "type": "integer", "enum": [14, 24, 35, 50, 85, 135, 200] },
+        "lighting_key": {
+          "type": "string",
+          "enum": ["high_key", "low_key", "natural", "golden_hour", "blue_hour", "tungsten_warm", "neon", "silhouette", "rim_lit", "volumetric", "overcast_soft"]
+        },
+        "depth_of_field": { "type": "string", "enum": ["shallow", "medium", "deep"] },
+        "color_temperature": { "type": "string", "enum": ["cool", "neutral", "warm", "mixed"] }
+      },
+      "additionalProperties": false
+    }
   },
   "additionalProperties": false
 }

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/capability_catalog",
+  "title": "Capability Catalog",
+  "description": "Per-model x per-operation capability declarations (MOD-02). Unknown != supported; UNKNOWN -> doctor DEGRADED/BLOCKED. Versioned per model+operation with verification status and evidence source. Owner maintained (F13).",
+  "type": "object",
+  "required": ["version", "entries"],
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["model", "operation", "verification_status"],
+        "properties": {
+          "model": { "type": "string" },
+          "operation": { "type": "string", "description": "text_to_video/image_to_video/reference_to_video/video_edit/..." },
+          "native_audio": { "type": ["boolean", "string"], "description": "bool or 'unknown'" },
+          "lipsync_from_dialogue": { "type": ["boolean", "string"] },
+          "reference_images_max": { "type": ["integer", "string"], "minimum": 0 },
+          "reference_video": { "type": ["boolean", "string"] },
+          "reference_audio": { "type": ["boolean", "string"] },
+          "multi_shot": { "type": ["boolean", "string"] },
+          "cross_shot_identity": { "type": ["boolean", "string"] },
+          "aspect_ratios": { "type": "array", "items": { "type": "string" } },
+          "min_duration_s": { "type": ["number", "string"], "minimum": 0 },
+          "max_duration_s": { "type": ["number", "string"], "minimum": 0 },
+          "output_resolutions": { "type": "array", "items": { "type": "string" }, "description": "e.g. 480p/720p/1080p (F34)" },
+          "seed_control": { "type": ["boolean", "string"] },
+          "first_frame_conditioning": { "type": ["boolean", "string"] },
+          "source": { "type": "string", "description": "docs/experiment evidence link" },
+          "verified_at": { "type": ["string", "null"] },
+          "verification_status": { "type": "string", "enum": ["VERIFIED", "MOCKED", "UNVERIFIED", "BLOCKED"] },
+          "commercial_rights": { "type": "string", "description": "Rights status/evidence; UNKNOWN blocks delivery" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "metadata": { "type": "object" }
+  },
+  "additionalProperties": false
+}

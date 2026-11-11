@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/shot_state",
+  "title": "Shot State",
+  "description": "Projection of the single per-episode append-only event log (ORC-01/11). Single owner = episode_log projection; NOT independently derived from reviews/task/checkpoint. Crash recovery = replay.",
+  "type": "object",
+  "required": ["version", "shot_id", "episode_id", "state", "event_seq"],
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "shot_id": { "type": "string" },
+    "episode_id": { "type": "string" },
+    "state": {
+      "type": "string",
+      "enum": ["planned", "keyframing", "keyframe_approved", "generating", "in_review", "accepted", "rejected", "assembled", "skipped"]
+    },
+    "candidate_version": { "type": ["string", "null"] },
+    "reject_count": { "type": "integer", "minimum": 0, "description": "Consecutive rejects for circuit breaker (REV-06)" },
+    "event_seq": { "type": "integer", "minimum": 0, "description": "Last applied event-log sequence number" },
+    "updated_at": { "type": "string" },
+    "metadata": { "type": "object" }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/submission_ledger",
+  "title": "Submission Ledger",
+  "description": "Durable paid-submission intent/billing record (ORC-03, NFR-01/03). Enables crash recovery without duplicate paid submission; UNKNOWN billing -> human reconciliation, never auto re-submit. Reservation lifecycle with max-age escalation.",
+  "type": "object",
+  "required": ["version", "entry_id", "intent", "provider", "billing_state"],
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "entry_id": { "type": "string" },
+    "episode_id": { "type": "string" },
+    "shot_id": { "type": ["string", "null"] },
+    "intent": { "type": "string", "description": "What generation was attempted" },
+    "input_hash": { "type": "string", "description": "Content hash of inputs for idempotent reuse" },
+    "provider": { "type": "string" },
+    "model": { "type": ["string", "null"] },
+    "task_id": { "type": ["string", "null"], "description": "Provider task id; null if crashed before retrieval" },
+    "billing_state": { "type": "string", "enum": ["pending", "submitted", "unknown", "billed", "free", "reserved", "released"] },
+    "currency": { "type": "string", "description": "Original currency, e.g. CNY/USD; never assume conversion" },
+    "rate": { "type": ["number", "null"], "description": "Unit rate at submission time" },
+    "reservation": {
+      "type": ["object", "null"],
+      "properties": {
+        "amount": { "type": "number", "minimum": 0 },
+        "max_age_s": { "type": "number", "minimum": 0 },
+        "state": { "type": "string", "enum": ["held", "released", "converted", "escalated"] }
+      },
+      "additionalProperties": false
+    },
+    "output_verified": { "type": "boolean", "default": false },
+    "created_at": { "type": "string" },
+    "resolved_at": { "type": ["string", "null"] },
+    "metadata": { "type": "object" }
+  },
+  "additionalProperties": false
+}

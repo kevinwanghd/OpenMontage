@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/episode_manifest",
+  "title": "Episode Manifest",
+  "description": "Episode-level metadata linking series/episode/project (ORC-02). Compatible with existing projects/<project_id>/ discovery; legacy manifest-less projects listed as N/A, not migrated.",
+  "type": "object",
+  "required": ["version", "series_id", "episode_id", "project_id", "target_platform"],
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "series_id": { "type": "string" },
+    "episode_id": { "type": "string" },
+    "project_id": { "type": "string" },
+    "target_platform": { "type": "string", "enum": ["tiktok", "youtube_shorts", "instagram_reels"] },
+    "duration_s": { "type": "number", "minimum": 1 },
+    "review_policy": {
+      "type": "object",
+      "properties": {
+        "mode": { "type": "string", "enum": ["all", "sampled"], "default": "sampled" },
+        "detail_ratio": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.35 },
+        "face_sim_threshold": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.75 },
+        "sampling_salt": { "type": "string", "description": "Per-episode salt for deterministic sampling (REV-02)" }
+      },
+      "additionalProperties": false
+    },
+    "language": { "type": "string", "default": "en" },
+    "metadata": { "type": "object" }
+  },
+  "additionalProperties": false
+}
