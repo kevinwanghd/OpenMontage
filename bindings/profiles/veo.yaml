@@ -1,0 +1,29 @@
+# Veo-first profile. Definition preserved for M4 switch testing (MOD-09).
+version: "1.0"
+profile: veo
+description: "Veo 3 primary: native audio; independent TTS + lipsync when dialogue needs it."
+draft: false
+delivery:
+  target_platform: tiktok
+  target_resolution: 1080x1920
+  draft_resolution: 1080p
+  requires_upscale: false
+bindings:
+  video_primary:
+    chain:
+      - tool: veo_video
+        provider: google
+        catalog_model: google/veo-3
+        tier: paid
+        operations: [text_to_video, image_to_video]
+degradation:
+  - id: video_primary_no_native_lipsync
+    slot: video_primary
+    when:
+      missing_capabilities: [lipsync_from_dialogue]
+    lost: [native_lipsync]
+    path:
+      - stage: tts_dialogue
+      - stage: lipsync
+      - stage: mux
+    approval_required: true

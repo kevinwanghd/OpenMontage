@@ -1,0 +1,64 @@
+# Canonical capability slots (L2 of the three-layer split, MOD-01).
+#
+# Pipeline manifests reference these names in ``tools_available``; they never
+# name a tool. A profile maps each slot to an ordered priority chain of
+# bindings (L3). Doctor and the degradation planner read the requirements
+# declared here when no explicit requirements are passed.
+version: "1.0"
+slots:
+  video_primary:
+    description: "Shot video generation (keyframe image -> video, or text -> video)"
+    stage: shot_gen
+    required: true
+    capability_family: video_generation
+    required_operations: [image_to_video]
+    required_capabilities: {first_frame_conditioning: true}
+    required_output_resolutions: [480p]
+
+  image_character_key:
+    description: "Character reference / costume key images used to keep identity stable"
+    stage: character_cast
+    required: true
+    capability_family: image_generation
+
+  image_reference:
+    description: "Keyframes and other reference stills for a scene"
+    stage: keyframe
+    required: true
+    capability_family: image_generation
+
+  tts_voice:
+    description: "Dialogue and narration text-to-speech"
+    stage: assembly
+    required: true
+    capability_family: tts
+
+  lipsync:
+    description: "Face lip-sync when the video binding has no native dialogue lipsync"
+    stage: shot_gen
+    required: false
+    capability_family: avatar
+
+  music:
+    description: "Background music bed"
+    stage: assembly
+    required: false
+    capability_family: music_generation
+
+  compose:
+    description: "Final composition / render runtime"
+    stage: assembly
+    required: true
+    capability_family: video_post
+
+  subtitle:
+    description: "Subtitle generation and burn-in input"
+    stage: assembly
+    required: true
+    capability_family: subtitle
+
+  upscale:
+    description: "480p draft -> 1080x1920 delivery upscale (DEL-01, F34)"
+    stage: delivery
+    required: false
+    capability_family: enhancement

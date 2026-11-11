@@ -1,0 +1,12 @@
+# Active short-drama binding profile (MOD-01 / MOD-03 / X-13).
+#
+# Switching the whole pipeline's tooling is ONE line here -- pipeline manifests
+# only ever reference slots (``slot:video_primary``), never tool names. The
+# ``om profile use`` flow rewrites this pointer after user confirmation and
+# records the change in decision_log.
+#
+# P0 keeps every profile definition registered but only verifies the primary
+# draft chain (tiktok-draft) plus its fallback. See bindings/profiles/.
+version: "1.0"
+active_profile: tiktok-draft
+profiles_dir: profiles
