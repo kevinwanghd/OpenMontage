@@ -607,6 +607,37 @@ function renderDecisions(s) {
     body);
 }
 
+const TASK_STATUS_UI = {
+  pending: { icon: "○", label: "todo", cls: "run" },
+  running: { icon: "●", label: "running", cls: "run" },
+  blocked: { icon: "⏸", label: "blocked", cls: "run" },
+  done: { icon: "✓", label: "done", cls: "ok" },
+  failed: { icon: "✕", label: "failed", cls: "err" },
+};
+
+function renderTasks(s) {
+  const tasks = s.tasks || [];
+  if (!tasks.length) return null;
+  const body = el("div", { class: "panel-body" });
+  const open = tasks.filter((t) => t.status !== "done");
+  const closed = tasks.filter((t) => t.status === "done");
+  // Open work first (running, then blocked, then todo), finished work last.
+  const rank = { running: 0, blocked: 1, pending: 2, failed: 3, done: 4 };
+  const sorted = [...open, ...closed].sort((a, b) => (rank[a.status] ?? 9) - (rank[b.status] ?? 9));
+  for (const t of sorted) {
+    const ui = TASK_STATUS_UI[t.status] || TASK_STATUS_UI.pending;
+    body.append(el("div", { class: "act-row" },
+      el("span", { class: "t" }, fmtClock(t.ts)),
+      el("span", { class: "tool", title: t.detail || "" }, t.title || t.id),
+      el("span", { class: "target" }, t.stage || ""),
+      el("span", { class: `status ${ui.cls}` }, `${ui.icon} ${ui.label}`),
+    ));
+  }
+  return el("div", { class: "panel" },
+    el("div", { class: "panel-head" }, el("h2", {}, "Tasks"), el("span", { class: "meta" }, "events.jsonl · task")),
+    body);
+}
+
 function renderActivity(s) {
   const events = s.events || [];
   if (!events.length) return null;
@@ -1075,8 +1106,10 @@ function render() {
   const script = renderScriptCard(s);
   if (script) main.append(script);
   const aside = el("aside", {});
+  const tasks = renderTasks(s);
   const decisions = renderDecisions(s);
   const activity = renderActivity(s);
+  if (tasks) aside.append(tasks);
   if (decisions) aside.append(decisions);
   if (activity) aside.append(activity);
 
@@ -1086,11 +1119,11 @@ function render() {
   const found = renderFoundMedia(s);
   const renders = renderRenders(s);
 
-  if (approvalReview || script || decisions || activity) {
+  if (approvalReview || script || tasks || decisions || activity) {
     for (const section of [storyboard, found, renders]) {
       if (section) main.append(section);
     }
-    const hasAside = Boolean(decisions || activity);
+    const hasAside = Boolean(tasks || decisions || activity);
     app.append(el("div", { class: `board${hasAside ? "" : " solo"}` }, main, hasAside ? aside : null));
   } else {
     for (const section of [storyboard, found, renders]) {
@@ -1104,6 +1137,7 @@ function render() {
 function normalize(s) {
   s.pipeline = s.pipeline || { pipeline_type: "unknown", stages: [], known: false };
   s.stages = Array.isArray(s.stages) ? s.stages : [];
+  s.tasks = Array.isArray(s.tasks) ? s.tasks : [];
   for (const stage of s.stages) {
     stage.produces = Array.isArray(stage.produces) ? stage.produces : [];
   }

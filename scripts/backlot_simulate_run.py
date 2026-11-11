@@ -94,6 +94,20 @@ def main() -> int:
     brief["topic"] = "The Last Lighthouse"
     cp("research", "completed", {"research_brief": brief})
 
+    # proposal gates: awaiting_human -> approved
+    # The cinematic pipeline order is research -> proposal -> script -> ...,
+    # and checkpoint prerequisite enforcement requires an approved 'proposal'
+    # before 'script' can advance. This driver skipped that stage.
+    # See upstream issue #874.
+    proposal = sample_artifact("proposal_packet")
+    cp("proposal", "in_progress", {})
+    save_artifact("proposal_packet", proposal)
+    cp("proposal", "awaiting_human", {"proposal_packet": proposal},
+       review={"round": 1, "decision": "pass", "critical": 0, "suggestions": 1,
+               "nitpicks": 0, "summary": "Direction c1 approved."})
+    time.sleep(wait)  # "user approves the proposal on the board"
+    cp("proposal", "completed", {"proposal_packet": proposal}, human_approved=True)
+
     # script gates: awaiting_human -> approved
     cp("script", "in_progress", {})
     save_artifact("script", art["script"])

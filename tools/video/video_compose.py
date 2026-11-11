@@ -1182,7 +1182,10 @@ class VideoCompose(BaseTool):
             except OSError:
                 pass
             dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
+            # NB: plain copy() (not copy2) so the staged file's mtime is "now".
+            # copy2 preserves the source mtime, which makes the mtime-skip test
+            # above always true and the staged copy would never refresh.
+            shutil.copy(src, dst)
 
         return staging_dir / entry_path.name
 
@@ -2900,6 +2903,11 @@ class VideoCompose(BaseTool):
         # Layer 2: edit_decisions subtitle style
         if edit_decisions:
             ed_style = edit_decisions.get("subtitles", {}).get("style", {})
+            if isinstance(ed_style, str):
+                # The edit_decisions schema types `subtitles.style` as a display
+                # style name ("sentence", "word-by-word", "karaoke"), not as a
+                # style map. Only a map carries overrides.
+                ed_style = {}
             for k, v in ed_style.items():
                 if v is not None:
                     resolved[k] = v

@@ -95,6 +95,39 @@ def emit_event(project_dir: Path | str, payload: dict[str, Any]) -> None:
         pass
 
 
+TASK_STATUSES = ("pending", "running", "blocked", "done", "failed")
+
+
+def emit_task(
+    project_dir: Path | str,
+    task_id: str,
+    title: str,
+    stage: str,
+    status: str,
+    detail: Optional[str] = None,
+) -> None:
+    """Append one task-lifecycle event to the project's events.jsonl.
+
+    A task is a unit of work the agent reports on (``generate sc3``,
+    ``mix narration``). The board folds these events into a task list, so a
+    run shows what it is doing rather than only which stage it is in.
+    Never raises.
+    """
+    if status not in TASK_STATUSES:
+        status = "pending"
+    emit_event(
+        project_dir,
+        {
+            "event": "task",
+            "task_id": task_id,
+            "title": title,
+            "stage": stage,
+            "status": status,
+            "detail": detail,
+        },
+    )
+
+
 def read_events(project_dir: Path | str, limit: Optional[int] = None) -> list[dict[str, Any]]:
     """Read events for a project (oldest first). Tolerates malformed lines."""
     path = Path(project_dir) / EVENTS_FILENAME

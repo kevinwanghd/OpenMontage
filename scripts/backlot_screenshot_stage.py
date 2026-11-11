@@ -195,7 +195,9 @@ def stage_project(pid: str, title: str, palette: str, scenes: list, *,
 
     script = script_artifact(title, scenes)
     plan = scene_plan_artifact(scenes, hero)
-    (art_dir / "decision_log.json").write_text(json.dumps(decision_log(pid), indent=2))
+    # decision_log is canonical at the project root (lib/checkpoint.py writes it
+    # there); writing it into artifacts/ is what used to desync the board.
+    (pdir / "decision_log.json").write_text(json.dumps(decision_log(pid), indent=2))
 
     if state == "early":
         cp("script", "in_progress", {})

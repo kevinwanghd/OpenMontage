@@ -155,6 +155,29 @@ class TestBoardState:
         idea = next(x for x in s["stages"] if x["name"] == "idea")
         assert idea.get("undeclared") is True
 
+    def test_decision_log_at_root_wins_over_artifacts_copy(self, projects_root):
+        """The writer (lib/checkpoint.py) puts decision_log at the project root.
+        A stale artifacts/decision_log.json must never shadow it, or the board
+        renders a frozen Decisions rail."""
+        p = _make_project(projects_root, "drift")
+        _write(p / "artifacts" / "decision_log.json",
+               {"version": "1.0", "project_id": "drift",
+                "decisions": [{"decision_id": "stale"}]})
+        _write(p / "decision_log.json",
+               {"version": "1.0", "project_id": "drift",
+                "decisions": [{"decision_id": "canonical"}]})
+        s = load_board_state(p)
+        assert [d["decision_id"] for d in s["artifacts"]["decision_log"]["decisions"]] == ["canonical"]
+
+    def test_decision_log_falls_back_to_artifacts_when_root_absent(self, projects_root):
+        """Legacy runs wrote decision_log only into artifacts/ — still readable."""
+        p = _make_project(projects_root, "legacy-log")
+        _write(p / "artifacts" / "decision_log.json",
+               {"version": "1.0", "project_id": "legacy-log",
+                "decisions": [{"decision_id": "old"}]})
+        s = load_board_state(p)
+        assert [d["decision_id"] for d in s["artifacts"]["decision_log"]["decisions"]] == ["old"]
+
 
 class TestLibrary:
     def test_list_projects_sorts_live_first(self, projects_root):

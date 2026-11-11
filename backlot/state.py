@@ -142,6 +142,41 @@ def _collect_history(project_dir: Path) -> dict[str, list[dict]]:
     return out
 
 
+def _build_tasks(events: list[dict]) -> list[dict]:
+    """Fold task-lifecycle events into one row per task (latest wins).
+
+    A task is reported by the agent as pending → running → done/failed/
+    blocked. The board shows the row list, so a run reads as a worklist
+    instead of a single stage that jumps from "in progress" to "done".
+    """
+    tasks: dict[str, dict] = {}
+    order: list[str] = []
+    for ev in events:
+        if ev.get("event") != "task":
+            continue
+        tid = ev.get("task_id")
+        if not tid:
+            continue
+        task = tasks.get(tid)
+        if task is None:
+            task = {
+                "id": tid,
+                "title": ev.get("title") or tid,
+                "stage": ev.get("stage"),
+                "status": "pending",
+                "detail": None,
+                "ts": ev.get("ts"),
+            }
+            tasks[tid] = task
+            order.append(tid)
+        task["status"] = ev.get("status") or task["status"]
+        task["title"] = ev.get("title") or task["title"]
+        task["stage"] = ev.get("stage") or task["stage"]
+        task["detail"] = ev.get("detail") or task["detail"]
+        task["ts"] = ev.get("ts")
+    return [tasks[tid] for tid in order]
+
+
 def _build_stage_rail(
     pipeline_meta: dict,
     checkpoints: dict[str, dict],
@@ -251,11 +286,14 @@ def _collect_artifacts(project_dir: Path, checkpoints: dict[str, dict]) -> dict[
         data = _read_json(art_dir / filename)
         if data is not None:
             artifacts[name] = data
-    # decision_log historically also lives at project root
-    if "decision_log" not in artifacts:
-        data = _read_json(project_dir / "decision_log.json")
-        if data is not None:
-            artifacts["decision_log"] = data
+    # decision_log is written to the project root by lib/checkpoint.py, not into
+    # artifacts/ like the other canonical artifacts — the root file is canonical
+    # and always wins. artifacts/decision_log.json is only a legacy fallback: old
+    # runs and scripts/backlot_screenshot_stage.py used to write there, and if the
+    # board preferred that copy it would render a frozen pre-swap decision rail.
+    data = _read_json(project_dir / "decision_log.json")
+    if data is not None:
+        artifacts["decision_log"] = data
     # Backfill from checkpoint-embedded artifacts.
     for cp in checkpoints.values():
         for name, value in (cp.get("artifacts") or {}).items():
@@ -610,6 +648,10 @@ def load_board_state(project_dir: Path) -> dict[str, Any]:
     storyboard = _build_storyboard(project_dir, artifacts, events)
     media = _scan_media(project_dir)
 
+    # Tasks are read from the whole log — the 250-event window used for the
+    # activity feed can drop a task row the board is still tracking.
+    tasks = _build_tasks(read_events(project_dir))
+
     stages = _build_stage_rail(pipeline_meta, checkpoints, history)
 
     # Cost: latest checkpoint snapshot wins; fall back to manifest total.
@@ -650,6 +692,7 @@ def load_board_state(project_dir: Path) -> dict[str, Any]:
         "storyboard": storyboard,
         "media": media,
         "events": events,
+        "tasks": tasks,
         "cost": cost,
         "last_activity": last_activity,
         "live": bool(last_activity and (now - last_activity) < LIVE_WINDOW_SECONDS),
