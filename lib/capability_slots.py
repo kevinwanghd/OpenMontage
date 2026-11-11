@@ -657,16 +657,16 @@ _MODEL_COSTS: dict[str, dict[str, Any]] = {
     },
     "zhipu/cogvideox-flash": {
         "cash_cny_per_run": 0.0,
-        "basis": "published free tier: ¥0 per generation (tools/video/zhipu_video.py _MODEL_PRICE_RMB)",
+        "basis": "published free tier: CNY 0 per generation (tools/video/zhipu_video.py _MODEL_PRICE_RMB)",
         "quota": {"unit": "generations", "per_run": None, "source": "free tier, no total cap"},
     },
     "zhipu/cogvideox-2": {
         "cash_cny_per_run": 0.5,
-        "basis": "published list price ¥0.5 per generation (tools/video/zhipu_video.py)",
+        "basis": "published list price CNY 0.5 per generation (tools/video/zhipu_video.py)",
     },
     "zhipu/cogvideox-3": {
         "cash_cny_per_run": 1.0,
-        "basis": "published list price ¥1.0 per generation (tools/video/zhipu_video.py)",
+        "basis": "published list price CNY 1.0 per generation (tools/video/zhipu_video.py)",
     },
     "agnes/agnes-video-2.5-flash": {
         "cash_cny_per_s": 0.0,

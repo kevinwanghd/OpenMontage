@@ -89,13 +89,28 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _encoding_safe(text: str, stream: Any) -> str:
+    """Return ``text`` writable on ``stream`` without a UnicodeEncodeError.
+
+    Windows consoles default to GBK, which cannot encode every character the
+    report may carry (e.g. ``¥``). Only the unencodable characters are degraded
+    at the output boundary -- the CLI must never crash on a console encoding.
+    """
+    encoding = getattr(stream, "encoding", None) or "utf-8"
+    try:
+        text.encode(encoding)
+    except (UnicodeEncodeError, LookupError):
+        return text.encode(encoding, errors="replace").decode(encoding, errors="replace")
+    return text
+
+
 def _write(data: Any, as_json: bool, *, stream: Optional[Any] = None) -> None:
     stream = stream or sys.stdout
     if as_json:
         text = json.dumps(data, ensure_ascii=False, indent=2)
     else:
         text = _human(data)
-    stream.write(text + "\n")
+    stream.write(_encoding_safe(text + "\n", stream))
 
 
 def _human(data: Any) -> str:
@@ -117,17 +132,18 @@ def _human(data: Any) -> str:
 def _emit_error(exc: ApiError, as_json: bool) -> None:
     envelope = exc.to_envelope(include_trace=True)
     if as_json:
-        sys.stderr.write(json.dumps(envelope, ensure_ascii=False, indent=2) + "\n")
-        return
-    lines = [f"{exc.code.value}: {exc.what}"]
-    if exc.fix:
-        lines.append(f"  fix: {exc.fix}")
-    lines.append(f"  recovery: {exc.recovery} | side_effects: {exc.side_effects}")
-    if exc.context:
-        lines.append(f"  context: {json.dumps(exc.context, ensure_ascii=False)}")
-    if exc.trace:
-        lines.append(f"  trace: {exc.trace}")
-    sys.stderr.write("\n".join(lines) + "\n")
+        text = json.dumps(envelope, ensure_ascii=False, indent=2)
+    else:
+        lines = [f"{exc.code.value}: {exc.what}"]
+        if exc.fix:
+            lines.append(f"  fix: {exc.fix}")
+        lines.append(f"  recovery: {exc.recovery} | side_effects: {exc.side_effects}")
+        if exc.context:
+            lines.append(f"  context: {json.dumps(exc.context, ensure_ascii=False)}")
+        if exc.trace:
+            lines.append(f"  trace: {exc.trace}")
+        text = "\n".join(lines)
+    sys.stderr.write(_encoding_safe(text + "\n", sys.stderr))
 
 
 # ---------------------------------------------------------------------------
@@ -858,7 +874,20 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _make_console_encoding_safe() -> None:
+    """Degrade unencodable characters instead of raising on a GBK console."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(errors="replace")
+        except (ValueError, OSError):
+            pass
+
+
 def main(argv: Optional[Iterable[str]] = None) -> int:
+    _make_console_encoding_safe()
     args = build_parser().parse_args(list(argv) if argv is not None else None)
     as_json = bool(getattr(args, "json", False))
     previous_bindings = os.environ.get(slots.BINDINGS_DIR_ENV)
