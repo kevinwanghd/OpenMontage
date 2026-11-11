@@ -1,0 +1,294 @@
+name: short-drama
+version: "0.1"
+description: >
+  Vertical short-drama pipeline (TikTok-first, 9:16, 60-120s). Nine stages from
+  brief to delivery: brief -> beat_map -> script -> character_cast ->
+  scene_plan -> keyframe -> shot_gen -> assembly -> delivery. Stages never name
+  a provider; they reference capability slots declared in bindings/slots.yaml
+  (MOD-01), so switching a binding profile never edits this file. Degraded
+  sub-stages (draft upscale, separated TTS + lipsync + mux when the video
+  binding has no native dialogue lipsync) are predeclared below as conditional
+  sub_stages, never improvised in code (MOD-06 / F14).
+category: custom
+stability: beta
+default_checkpoint_policy: manual_all
+
+extensions:
+  custom_scripts: true
+  custom_playbooks: true
+  custom_skills: true
+  custom_tools: false
+
+required_skills:
+  - pipelines/short-drama/idea-director
+  - pipelines/short-drama/beat-map-director
+  - pipelines/short-drama/script-director
+  - pipelines/short-drama/character-cast-director
+  - pipelines/short-drama/scene-plan-director
+  - pipelines/short-drama/keyframe-director
+  - pipelines/short-drama/shot-gen-director
+  - pipelines/short-drama/assembly-director
+  - pipelines/short-drama/delivery-director
+  - meta/reviewer
+  - meta/checkpoint-protocol
+
+compatible_playbooks:
+  recommended: []
+  also_works:
+    - clean-professional
+    - premium-minimalist
+  custom_allowed: true
+
+metadata:
+  target_aspect_ratio: "9:16"
+  target_resolution: "1080x1920"
+  safe_area: "900x1400"
+  loudness_lufs: -14
+  true_peak_dbtp: -1
+  hook_window_seconds: 3
+  target_duration_seconds: 120
+  binding_profile_default: tiktok-draft
+
+stages:
+  # Planning stage. The repo-wide planning stage is `idea` (see
+  # lib/checkpoint.py CANONICAL_STAGE_ARTIFACTS: idea -> brief) and
+  # test_runtime_presentation_contract.py requires every composing pipeline to
+  # carry a planning stage under that name. The short-drama artifact stays
+  # `brief`, and review point 1 records decisions under the review stage
+  # `brief` (lib/review.py STAGE_REASON_CODES).
+  - name: idea
+    skill: pipelines/short-drama/idea-director
+    produces:
+      - brief
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - The hook lands inside the first 2-3 seconds and is stated as a visible conflict, not a title card
+      - One-sentence selling proposition is explicit
+      - Target audience, language, platform, and target duration are explicit
+      - Series continuity fields (series_id, episode_number) are recorded when this episode is not standalone
+    success_criteria:
+      - Schema-valid brief
+      - Hook, core_message, tone, style, target_platform, and target_duration_seconds are all filled
+
+  - name: beat_map
+    skill: pipelines/short-drama/beat-map-director
+    required_artifacts_in:
+      - brief
+    produces:
+      - beat_map
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - 120-second retention shape is explicit (HOOK 0-3s, SETUP, RISING, MID-TURN, ESCALATION, CLIMAX, RESOLUTION)
+      - At least one beat or hook candidate every 15 seconds
+      - Conflict escalation curve and reversal positions are marked
+      - Machine-checkable hook density is satisfiable from the beat list alone
+    success_criteria:
+      - Schema-valid beat_map
+      - Every 15-second window contains at least one beat
+      - At least 5 hook candidates are marked across the episode
+
+  - name: script
+    skill: pipelines/short-drama/script-director
+    required_artifacts_in:
+      - brief
+      - beat_map
+    produces:
+      - script
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Dialogue is spoken language, one sentence stays under 20 characters
+      - Every beat maps to an actable action, not voice-over-only narration
+      - Speaker, emotion, and dialogue language are explicit for TTS and lipsync
+      - Dialect or language register is locked before generation
+    success_criteria:
+      - Schema-valid script
+      - Every beat_map beat is covered by at least one section
+      - Every dialogue line has a speaker and an emotional direction
+
+  - name: character_cast
+    skill: pipelines/short-drama/character-cast-director
+    required_artifacts_in:
+      - script
+    produces:
+      - character_design
+      - drama_character
+    tools_available:
+      - slot:image_character_key
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - The costume key image reads as the same person as the written character card
+      - Age, hair, wardrobe, and silhouette are consistent across views
+      - Reference images cover enough angles for downstream keyframe conditioning
+      - Character identity is registered in the asset library and reusable across episodes
+    success_criteria:
+      - Schema-valid character_design
+      - Every speaking role has a drama_character record with a stable character_id
+      - Key images are stored under the project workspace, never in the repo root
+
+  - name: scene_plan
+    skill: pipelines/short-drama/scene-plan-director
+    required_artifacts_in:
+      - script
+      - character_design
+    optional_artifacts_in:
+      - beat_map
+    produces:
+      - scene_plan
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Shots are vertical 9:16 and composed inside the 900x1400 safe area
+      - Shot sizes vary; no long run of identical framing
+      - Every shot has one single_action, visual_evidence, and a reference character id list
+      - Hook candidates survive from the beat map into the shots list
+    success_criteria:
+      - Schema-valid scene_plan
+      - Every shot maps to at least one registered character
+      - Every shot declares needs_lipsync explicitly
+
+  - name: keyframe
+    skill: pipelines/short-drama/keyframe-director
+    required_artifacts_in:
+      - scene_plan
+      - character_design
+    produces:
+      - asset_manifest
+    tools_available:
+      - slot:image_reference
+      - slot:image_character_key
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Composition, eyeline, lighting, wardrobe, and expression match the shot card
+      - The keyframe reads as the same person as the costume key image
+      - 3-5 candidates per shot are reviewed scene by scene
+      - Every candidate records its provider, model, and prompt
+    success_criteria:
+      - Schema-valid asset_manifest
+      - Every shot in scene_plan has an approved keyframe or an explicit BLOCKED note
+
+  - name: shot_gen
+    skill: pipelines/short-drama/shot-gen-director
+    required_artifacts_in:
+      - asset_manifest
+      - scene_plan
+    produces:
+      - asset_manifest
+    tools_available:
+      - slot:video_primary
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Lip sync matches the approved dialogue track
+      - Motion is natural, no limbs clipping or identity drift
+      - Each clip stays inside the shot's declared duration
+      - The degraded path (TTS + lipsync + mux) is used only when predeclared and approved
+    success_criteria:
+      - Schema-valid asset_manifest
+      - Every shot has a generated clip linked to its keyframe
+      - No silent substitution of a still image for a required motion shot
+    sub_stages:
+      - name: native_dialogue_lipsync
+        description: "Video binding renders dialogue lipsync natively; no extra audio stages."
+        condition: "video_primary_native_lipsync"
+        human_approval_default: false
+        tools_available:
+          - slot:video_primary
+        review_focus:
+          - Native audio and mouth shapes agree on the approved dialogue
+      - name: separate_lipsync_path
+        description: >
+          Declared degradation for bindings without lipsync_from_dialogue:
+          synthesize dialogue with TTS, drive a lipsync pass, then mux the
+          track back onto the silent clip. DEGRADED with lost=native_lipsync,
+          added=3 sub-stages; approval is required before spending.
+        condition: "video_primary_lipsync_missing"
+        human_approval_default: true
+        tools_available:
+          - slot:video_primary
+          - slot:tts_voice
+          - slot:lipsync
+        review_focus:
+          - The muxed track stays in sync for every line
+          - The degraded path is recorded in decision_log before execution
+
+  - name: assembly
+    skill: pipelines/short-drama/assembly-director
+    required_artifacts_in:
+      - asset_manifest
+      - scene_plan
+    optional_artifacts_in:
+      - script
+    produces:
+      - edit_decisions
+    tools_available:
+      - slot:tts_voice
+      - slot:music
+      - slot:subtitle
+      - slot:compose
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Visual change every 1-3 seconds; cuts land on beat
+      - Subtitle line breaks follow spoken phrasing and stay inside the safe area
+      - Loudness measures -14 LUFS (+/-1 LU) and true peak <= -1 dBTP
+      - render_runtime is carried unchanged from proposal
+    success_criteria:
+      - Schema-valid edit_decisions
+      - Loudness measurement passes
+      - Every cut references an approved clip from asset_manifest
+
+  - name: delivery
+    skill: pipelines/short-drama/delivery-director
+    required_artifacts_in:
+      - edit_decisions
+    optional_artifacts_in:
+      - asset_manifest
+      - scene_plan
+    produces:
+      - render_report
+      - publish_log
+    tools_available:
+      - slot:compose
+      - slot:upscale
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Output is 1080x1920, subtitles inside the safe area, -14 LUFS
+      - Rights, platform rules, and AI-disclosure status are recorded
+      - Any draft-to-delivery upscale is labelled DEGRADED, not passed as native 1080p
+      - Thumbnail/poster frame carries the hook
+    success_criteria:
+      - Schema-valid render_report
+      - Schema-valid publish_log
+      - ffprobe confirms resolution, duration, and audio loudness
+    sub_stages:
+      - name: native_delivery
+        description: "Draft already meets the delivery resolution; direct render."
+        condition: "draft_resolution_meets_target"
+        human_approval_default: false
+        tools_available:
+          - slot:compose
+        review_focus:
+          - Output resolution equals the delivery target without upscaling
+      - name: delivery_upscale
+        description: >
+          Declared draft-to-delivery upscale (DEL-01 / F34): the 480P draft is
+          rendered then upscaled to 1080x1920. delivery_upscale is DEGRADED with
+          lost=native_1080p; the render_report must say so.
+        condition: "draft_resolution_below_target"
+        human_approval_default: false
+        tools_available:
+          - slot:compose
+          - slot:upscale
+        review_focus:
+          - Upscaled output is labelled DEGRADED in render_report
+          - No text or face detail is visibly destroyed by the upscale
