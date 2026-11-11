@@ -42,6 +42,23 @@ KINDS = ("image", "video")
 ASSET_VERSION = "1.0"
 IDENTITY_STORE_VERSION = "v1"
 TEXT_INDEX_MODEL = "local-hash-v1"
+SHOTS_INDEX_VERSION = "1.0"
+
+# LIB-03: every lineage record must answer these questions. A field that does
+# not apply, or that the provider did not return, is stored as ``None`` with an
+# explicit reason in ``null_reasons`` — never omitted, never guessed.
+LINEAGE_FIELDS = (
+    "project",
+    "episode",
+    "source",
+    "rights",
+    "tool",
+    "model",
+    "generation_params",
+)
+LINEAGE_NULL_REASONS_KEY = "null_reasons"
+NULL_REASON_NOT_REPORTED = "not_reported"
+LINEAGE_TRACE_DEFAULT_DEPTH = 16
 
 _SAFE_SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*$")
 _TOKEN = re.compile(r"[a-z0-9]+")
@@ -200,6 +217,16 @@ class AssetLibrary:
     def identity_dir(self) -> Path:
         return self.library_dir / "identity"
 
+    @property
+    def status_index_path(self) -> Path:
+        """Append-only status journal (asset.json stays the source of truth)."""
+        return self.library_dir / "index" / "status.jsonl"
+
+    @property
+    def shots_index_path(self) -> Path:
+        """Append-only accepted-shot table for cross-episode reuse (LIB-04)."""
+        return self.library_dir / "shots" / "index.jsonl"
+
     def _asset_path(self, kind: str, asset_id: str) -> Path:
         return self.library_dir / kind / asset_id / "asset.json"
 
@@ -245,6 +272,149 @@ class AssetLibrary:
             path = entry / "asset.json"
             if path.is_file():
                 yield json.loads(path.read_text(encoding="utf-8"))
+
+    # ------------------------------------------------------------------
+    # Status journal (derived index, never a second source of truth)
+    # ------------------------------------------------------------------
+
+    def _append_status(
+        self, record: dict, *, event: str, prior_status: Optional[str]
+    ) -> None:
+        """Append one status transition to ``index/status.jsonl``.
+
+        ``asset.json`` remains the single source of truth; this journal is a
+        derived, append-only convenience for cross-episode dashboards. Nothing
+        here mutates corpus rows (LIB-04: status lives in asset.json + index,
+        never as a corpus row mutation).
+        """
+        path = self.status_index_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        row = {
+            "asset_id": record["asset_id"],
+            "kind": record["kind"],
+            "event": event,
+            "status": record.get("status"),
+            "prior_status": prior_status,
+            "at": _now(),
+        }
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+    def status_index(self) -> dict[str, dict]:
+        """Latest status journal row per asset (empty before the first write)."""
+        out: dict[str, dict] = {}
+        path = self.status_index_path
+        if not path.is_file():
+            return out
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            row = json.loads(line)
+            if isinstance(row, dict) and "asset_id" in row:
+                out[str(row["asset_id"])] = row
+        return out
+
+    # ------------------------------------------------------------------
+    # Shots table (accepted whole shots, cross-episode reuse; LIB-04)
+    # ------------------------------------------------------------------
+
+    def _read_shots(self) -> list[dict]:
+        path = self.shots_index_path
+        if not path.is_file():
+            return []
+        rows: list[dict] = []
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            rows.append(json.loads(line))
+        return rows
+
+    def record_accepted_shot(
+        self,
+        *,
+        shot_id: str,
+        project: str,
+        episode: str,
+        asset_id: Optional[str] = None,
+        metadata: Optional[dict] = None,
+        promote: bool = False,
+    ) -> dict:
+        """Append an accepted whole shot to the shots table (LIB-04).
+
+        Idempotent by ``(project, episode, shot_id)``; re-recording returns the
+        existing row instead of duplicating it. ``promote=True`` also moves the
+        backing candidate asset to reusable status in ``asset.json``. The table
+        is append-only and never touches the corpus.
+        """
+        _safe_segment(shot_id, "shot_id")
+        _safe_segment(project, "project")
+        _safe_segment(episode, "episode")
+        if asset_id is not None:
+            _safe_segment(asset_id, "asset_id")
+        if metadata is not None:
+            metadata = _jsonable(metadata, "metadata")
+
+        with self._lock:
+            if asset_id is not None and self._find_asset(asset_id) is None:
+                raise AssetNotFoundError(asset_id)
+            if promote and asset_id is not None:
+                self._promote_locked(asset_id)
+
+            for row in self._read_shots():
+                if (
+                    row.get("project") == project
+                    and row.get("episode") == episode
+                    and row.get("shot_id") == shot_id
+                ):
+                    return copy.deepcopy(row)
+
+            row = {
+                "table_version": SHOTS_INDEX_VERSION,
+                "shot_id": shot_id,
+                "project": project,
+                "episode": episode,
+                "asset_id": asset_id,
+                "status": "accepted",
+                "metadata": metadata or {},
+                "recorded_at": _now(),
+            }
+            path = self.shots_index_path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+            return copy.deepcopy(row)
+
+    def list_shots(
+        self,
+        *,
+        project: Optional[str] = None,
+        episode: Optional[str] = None,
+        exclude_episode: Optional[str] = None,
+        status: Optional[str] = "accepted",
+    ) -> list[dict]:
+        """Read the shots table with optional filters, in registration order."""
+        rows = []
+        for row in self._read_shots():
+            if project is not None and row.get("project") != project:
+                continue
+            if episode is not None and row.get("episode") != episode:
+                continue
+            if exclude_episode is not None and row.get("episode") == exclude_episode:
+                continue
+            if status is not None and row.get("status") != status:
+                continue
+            rows.append(copy.deepcopy(row))
+        return rows
+
+    def reusable_shots(
+        self, project: str, *, exclude_episode: Optional[str] = None
+    ) -> list[dict]:
+        """Accepted shots from earlier episodes, reusable by the next one."""
+        return self.list_shots(
+            project=project, exclude_episode=exclude_episode, status="accepted"
+        )
 
     # ------------------------------------------------------------------
     # Identity store (independent, versioned by embedder model)
@@ -445,6 +615,8 @@ class AssetLibrary:
             raise InvalidAssetError("embedding requires embedder_model")
         metadata = _jsonable(metadata, "metadata")
         if lineage is not None:
+            if not isinstance(lineage, dict):
+                raise InvalidAssetError("lineage must be a dict")
             lineage = _jsonable(lineage, "lineage")
 
         with self._lock:
@@ -467,6 +639,7 @@ class AssetLibrary:
                 record["identity"] = self._store_identity(
                     asset_id, kind, embedding, embedder_model)
             self._write_asset(record)
+            self._append_status(record, event="register", prior_status=None)
             self._index_in_corpus(record)
 
         return asset_id
@@ -533,19 +706,25 @@ class AssetLibrary:
         """Mark a candidate asset as reusable (LIB-04). Idempotent."""
         _safe_segment(asset_id, "asset_id")
         with self._lock:
-            record = self._find_asset(asset_id)
-            if record is None:
-                raise AssetNotFoundError(asset_id)
-            if record.get("status") == "retired":
-                raise AssetLibraryError(f"cannot promote retired asset {asset_id!r}")
-            if record.get("status") == "promoted":
-                return
-            now = _now()
-            record["status"] = "promoted"
-            record["promoted_at"] = now
-            record["updated_at"] = now
-            record.setdefault("events", []).append({"event": "promote", "at": now})
-            self._write_asset(record)
+            self._promote_locked(asset_id)
+
+    def _promote_locked(self, asset_id: str) -> None:
+        """Promote with the library lock already held."""
+        record = self._find_asset(asset_id)
+        if record is None:
+            raise AssetNotFoundError(asset_id)
+        if record.get("status") == "retired":
+            raise AssetLibraryError(f"cannot promote retired asset {asset_id!r}")
+        if record.get("status") == "promoted":
+            return
+        prior_status = record.get("status")
+        now = _now()
+        record["status"] = "promoted"
+        record["promoted_at"] = now
+        record["updated_at"] = now
+        record.setdefault("events", []).append({"event": "promote", "at": now})
+        self._write_asset(record)
+        self._append_status(record, event="promote", prior_status=prior_status)
 
     def retire(self, asset_id: str) -> None:
         """Tombstone an asset: keep every byte, exclude it from default queries."""
@@ -556,13 +735,15 @@ class AssetLibrary:
                 raise AssetNotFoundError(asset_id)
             if record.get("status") == "retired":
                 return
+            prior_status = record.get("status", "active")
             now = _now()
-            record["prior_status"] = record.get("status", "active")
+            record["prior_status"] = prior_status
             record["status"] = "retired"
             record["retired_at"] = now
             record["updated_at"] = now
             record.setdefault("events", []).append({"event": "retire", "at": now})
             self._write_asset(record)
+            self._append_status(record, event="retire", prior_status=prior_status)
 
     def lineage(self, asset_id: str) -> dict:
         """Return origin/provenance for an asset (LIB-03).
@@ -581,6 +762,94 @@ class AssetLibrary:
         out.setdefault("derived_from", [])
         out.setdefault("used_in", [])
         return out
+
+    def lineage_record(self, asset_id: str) -> dict:
+        """Full LIB-03 lineage with every applicable field explicit.
+
+        Unlike :meth:`lineage`, this is the strict shape the contract tests and
+        downstream UI read: every field in :data:`LINEAGE_FIELDS` is present.
+        A field that does not apply, or that the provider did not return, is
+        ``None`` and carries a reason in ``null_reasons`` — unknown values are
+        never fabricated.
+        """
+        record = self.get(asset_id)
+        raw = record.get("lineage") or {}
+        reasons = raw.get(LINEAGE_NULL_REASONS_KEY) or {}
+        out: dict[str, Any] = {
+            "asset_id": asset_id,
+            "kind": record["kind"],
+            "version": record.get("version"),
+            "status": record.get("status"),
+            "derived_from": list(raw.get("derived_from") or []),
+            "used_in": list(raw.get("used_in") or []),
+            LINEAGE_NULL_REASONS_KEY: {},
+        }
+        for field in LINEAGE_FIELDS:
+            value = raw.get(field)
+            if value is None:
+                out[field] = None
+                reason = reasons.get(field) if isinstance(reasons, dict) else None
+                out[LINEAGE_NULL_REASONS_KEY][field] = (
+                    reason if isinstance(reason, str) and reason.strip()
+                    else NULL_REASON_NOT_REPORTED
+                )
+            else:
+                out[field] = copy.deepcopy(value)
+
+        # Preserve additional caller-supplied lineage keys (e.g. shot, seed)
+        # so provenance is not silently dropped.
+        reserved = {"derived_from", "used_in", LINEAGE_NULL_REASONS_KEY}
+        for key, value in raw.items():
+            if key in reserved or key in LINEAGE_FIELDS:
+                continue
+            out[key] = copy.deepcopy(value)
+        return out
+
+    def trace_lineage(
+        self, asset_id: str, *, max_depth: int = LINEAGE_TRACE_DEFAULT_DEPTH
+    ) -> dict:
+        """Walk ``derived_from`` links and report the source chain (LIB-03).
+
+        Returns ``{"root", "chain", "missing"}``: ``chain`` is breadth-first
+        (the asset itself first), each entry carrying the asset's version and
+        provenance; ``missing`` lists referenced ids with no asset record.
+        Cycles terminate at ``max_depth`` and visited-set deduplication.
+        """
+        _safe_segment(asset_id, "asset_id")
+        if max_depth < 0:
+            raise InvalidAssetError("max_depth must be >= 0")
+        # A missing root is an error; missing *parents* are reported in
+        # ``missing`` so a partially-pruned history is still auditable.
+        self.lineage_record(asset_id)
+
+        visited: set[str] = set()
+        chain: list[dict] = []
+        missing: list[str] = []
+        queue: list[tuple[str, int]] = [(asset_id, 0)]
+        while queue:
+            current, depth = queue.pop(0)
+            if current in visited:
+                continue
+            visited.add(current)
+            try:
+                lineage = self.lineage_record(current)
+            except AssetNotFoundError:
+                missing.append(current)
+                continue
+            chain.append({
+                "asset_id": current,
+                "version": lineage["version"],
+                "project": lineage["project"],
+                "episode": lineage["episode"],
+                "source": lineage["source"],
+                "derived_from": lineage["derived_from"],
+            })
+            if depth >= max_depth:
+                continue
+            for parent in lineage["derived_from"]:
+                if isinstance(parent, str) and parent not in visited:
+                    queue.append((parent, depth + 1))
+        return {"root": asset_id, "chain": chain, "missing": missing}
 
     def get(self, asset_id: str) -> dict:
         """Return the full asset record (including retired assets)."""
