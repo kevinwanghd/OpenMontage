@@ -1,0 +1,179 @@
+# CHAR-10 M0: CPU face identity-comparison candidates + fallback declaration.
+#
+# Requirement (CHAR-10, P1; D14): identity consistency is manual in P0. M0 only
+# *declares* >= 2 license-clean CPU candidates, recording BOTH the model license
+# and the library license (a permissive library does not relicense its weights),
+# and declares the fallback when no usable tool exists.
+#
+# M0 makes zero external API calls and downloads no model. Nothing here is
+# measured, so no candidate may be VERIFIED/GREEN: verification_status is
+# UNVERIFIED (declared from upstream docs) or BLOCKED (known obstacle).
+# Unresolved fields say UNKNOWN instead of guessing (MOD-02: unknown != supported;
+# CHAR-06: detection != identity; unavailable matcher -> UNKNOWN manual review).
+#
+# verification_status vocabulary is the capability-catalog one
+# (schemas/artifacts/capability_catalog.schema.json):
+#   VERIFIED   measured against the provider      -> forbidden in M0
+#   MOCKED     contract proven against a mock only -> forbidden in M0
+#   UNVERIFIED declared from docs, not measured
+#   BLOCKED    known not usable as declared (license/rights/tech)
+version: "1.0"
+requirement: CHAR-10
+scope: M0
+title: "Identify-comparison tool candidates (CPU) and the detection-only fallback"
+
+verification_semantics:
+  source: "schemas/artifacts/capability_catalog.schema.json (verification_status) + MOD-02"
+  statuses: ["VERIFIED", "MOCKED", "UNVERIFIED", "BLOCKED"]
+  m0_allowed: ["UNVERIFIED", "BLOCKED"]
+  green_forbidden: true
+  rule: >
+    M0 performs no accuracy, bias, authorisation or device-compatibility
+    measurement. A candidate is never VERIFIED or GREEN here, and unknown
+    license facts are never promoted to "clean".
+
+license_rules:
+  required_fields: ["model.license", "library.license"]
+  unknown_marker: "UNKNOWN"
+  model_vs_library: >
+    Both are recorded independently. InsightFace is the reference trap: its
+    library is MIT but its published model weights are non-commercial
+    research-only, so the candidate is not license-clean for commercial use.
+
+# Detection and identity comparison are separate (CHAR-06). When no candidate is
+# license-clean *and* usable *and* measured, the pipeline keeps detection-only
+# coverage and routes identity to a human -- never to an invented score.
+fallback:
+  id: detection_only_plus_human_identity
+  applies_when: >
+    no candidate is license-clean for commercial use, CPU-usable, and measured
+    for this deployment (the M0 state of every candidate below)
+  detection:
+    tool: "tools/analysis/face_tracker.py"
+    role: "detect/track only; one face per frame; no embedding output"
+    output: "face detections / sampled-frame coverage"
+  identity_decision: MANUAL
+  identity_status: UNKNOWN
+  review_route: human_review
+  semantics: >
+    Coverage and a human identity judgement are reported; identity stays UNKNOWN
+    for machine scoring. Multiple faces, occlusion, no detection, or an
+    unavailable matcher remain UNKNOWN manual review (CHAR-06), never PASS.
+
+candidates:
+  - id: dlib_face_recognition_resnet
+    name: "dlib_face_recognition_resnet_model_v1 (via face_recognition)"
+    model:
+      name: "dlib_face_recognition_resnet_model_v1.dat"
+      license: "CC0-1.0"
+      license_source: "https://github.com/davisking/dlib-models (README declares the model files CC0)"
+      license_verified: false
+      training_data_provenance: "UNKNOWN - not independently verified in M0"
+    library:
+      name: "dlib + face_recognition"
+      license: "Boost-1.0 (dlib) + MIT (face_recognition)"
+      license_source: "https://github.com/davisking/dlib (Boost-1.0); https://github.com/ageitgey/face_recognition (MIT)"
+      license_verified: false
+    cpu:
+      available: true
+      measured: false
+      runtime: "dlib CPU build, no CUDA required"
+    input: "aligned RGB face crop (150x150)"
+    output: "128-d face embedding; Euclidean distance between embeddings"
+    identity_operations: ["embed", "compare"]
+    verification_status: UNVERIFIED
+    license_clean_for_commercial: true
+    caveats:
+      - "CC0 covers the weight files as published; training-data provenance is UNKNOWN and needs M1 legal review."
+      - "Distance thresholds are not calibrated in M0 (CHAR-07 owns per-embedder calibration)."
+    notes: >
+      Primary clean candidate. Library and model licenses are both permissive
+      as declared upstream; neither has been independently audited in M0.
+
+  - id: opencv_lbph
+    name: "OpenCV LBPHFaceRecognizer (cv2.face)"
+    model:
+      name: "none - trained locally from the operator's enrolled images"
+      license: "N/A - no pretrained model is distributed or downloaded"
+      license_source: "algorithm only; no model weights"
+      license_verified: true
+      training_data_provenance: "operator-supplied enrolment images"
+    library:
+      name: "OpenCV (opencv-contrib-python, cv2.face)"
+      license: "Apache-2.0"
+      license_source: "https://github.com/opencv/opencv (Apache-2.0 since 4.5.0)"
+      license_verified: false
+    cpu:
+      available: true
+      measured: false
+      runtime: "OpenCV CPU implementation"
+    input: "grayscale face crop + enrolled label set"
+    output: "predicted label + distance from the trained histogram model"
+    identity_operations: ["train", "predict"]
+    verification_status: UNVERIFIED
+    license_clean_for_commercial: true
+    caveats:
+      - "Classical method; cross-pose/video accuracy is UNKNOWN and likely weaker than deep embeddings."
+      - "Requires local enrolment data per character; no generic pretrained identity model."
+    notes: >
+      Fully license-clean fallback within the clean set: no weights to license,
+      Apache-2.0 library, CPU only. Accuracy must be measured in M1 before use.
+
+  - id: insightface_arcface_buffalo_l
+    name: "InsightFace ArcFace (buffalo_l)"
+    model:
+      name: "buffalo_l / ArcFace pretrained weights"
+      license: "non-commercial research only"
+      license_source: "https://github.com/deepinsight/insightface model-zoo statement (re-verify at M1)"
+      license_verified: false
+      training_data_provenance: "UNKNOWN - not disclosed in the model-zoo statement"
+    library:
+      name: "insightface"
+      license: "MIT"
+      license_source: "https://github.com/deepinsight/insightface (MIT)"
+      license_verified: false
+    cpu:
+      available: true
+      measured: false
+      runtime: "ONNX Runtime CPU provider"
+    input: "aligned face crop (112x112) + detection from SCRFD"
+    output: "512-d ArcFace embedding; cosine similarity"
+    identity_operations: ["detect", "embed", "compare"]
+    verification_status: BLOCKED
+    license_clean_for_commercial: false
+    blocked_reason: >
+      The library is MIT but the published model weights are non-commercial
+      research-only; the library license does not relicense the weights.
+    caveats:
+      - "Would need explicitly licensed weights (or retraining on licensed data) before commercial use."
+    notes: >
+      Recorded on purpose: it is the canonical case where checking only the
+      library license produces a false 'clean' verdict (CHAR-10/F22).
+
+  - id: opencv_sface
+    name: "OpenCV SFace (FaceRecognizerSF)"
+    model:
+      name: "face_recognition_sface_2021dec.onnx"
+      license: "UNKNOWN"
+      license_source: "UNKNOWN - OpenCV Zoo model card not verified in M0"
+      license_verified: false
+      training_data_provenance: "UNKNOWN"
+    library:
+      name: "OpenCV (opencv-contrib-python)"
+      license: "Apache-2.0"
+      license_source: "https://github.com/opencv/opencv (Apache-2.0 since 4.5.0)"
+      license_verified: false
+    cpu:
+      available: true
+      measured: false
+      runtime: "OpenCV DNN CPU inference"
+    input: "aligned face crop (112x112)"
+    output: "128-d SFace embedding; cosine similarity"
+    identity_operations: ["embed", "compare"]
+    verification_status: UNVERIFIED
+    license_clean_for_commercial: "UNKNOWN"
+    caveats:
+      - "Model weight license is UNKNOWN, so it is NOT counted as a clean candidate and must not be treated as usable for commercial delivery."
+    notes: >
+      Listed as a promising CPU option whose model license still needs
+      confirmation; UNKNOWN is deliberately not promoted to clean (MOD-02).
