@@ -1,0 +1,160 @@
+# Short-drama realistic style playbook (TikTok-first, vertical 9:16).
+#
+# Consumed by lib/delivery.py (frame/safe-area/subtitle limits) and by the
+# delivery + assembly directors. Values here are machine-checkable; the
+# TikTok preset id/version must match lib.delivery.TIKTOK_SAFE_AREA so a
+# preset revision is never silent (VIS-06).
+name: short-drama-realistic
+version: "1.0"
+
+identity:
+  name: Short Drama Realistic
+  version: "1.0"
+  platform: tiktok
+  category: cinematic
+  mood: grounded, high-contrast, cinematic realism
+  pace: fast
+  best_for: "English vertical micro-drama for TikTok (60-120s episodes)"
+
+delivery:
+  aspect_ratio: "9:16"
+  resolution: "1080x1920"
+  fps: 30
+  video_codec: h264
+  audio_codec: aac
+  container: mp4
+  duration_seconds:
+    min: 60
+    target: 120
+    max: 180
+
+# VIS-06: versioned TikTok vertical safe area. The right-edge interaction rail
+# and the bottom caption/music strip are blocked platform UI, not composition
+# space. Subtitles and faces must stay inside content_rect.
+# Derived from lib.subtitle.TIKTOK_9X16 (WP-N); lib/delivery.py asserts the
+# values match so the subtitle validator and delivery checks cannot drift.
+# The preset is provisional until VIS-06 calibration is recorded.
+safe_area:
+  preset: tiktok-9x16
+  version: "2026.11-p0-provisional"
+  calibrated: false
+  canvas:
+    width: 1080
+    height: 1920
+  content_rect:
+    x: 54
+    y: 192
+    width: 810
+    height: 1248
+  subtitle_rect:
+    x: 54
+    y: 1080
+    width: 810
+    height: 360
+  blocked_regions:
+    - name: right_interaction_rail
+      rect:
+        x: 864
+        y: 192
+        width: 216
+        height: 1248
+    - name: bottom_caption_music
+      rect:
+        x: 0
+        y: 1440
+        width: 1080
+        height: 480
+    - name: top_status_bar
+      rect:
+        x: 0
+        y: 0
+        width: 1080
+        height: 192
+
+# LOC-02 / AUD-06: English subtitles break by spoken clause, not by the
+# Chinese <= 20-character habit. Thresholds reuse lib/subtitle.py (WP-N):
+# <= 42 chars/line, <= 2 lines, <= 12 words and <= 3 seconds per cue.
+subtitles:
+  language: en
+  max_chars_per_line: 42
+  max_lines_per_cue: 2
+  max_words_per_cue: 12
+  max_cue_seconds: 3.0
+  min_cue_seconds: 0.8
+  break_on:
+    - clause_boundary
+    - punctuation
+    - speaker_change
+  style:
+    font: Inter
+    weight: 800
+    size_px: 64
+    fill: "#FFFFFF"
+    stroke: "#000000"
+    stroke_px: 6
+    background: none
+    case: sentence_case
+    position: bottom_center
+    anchor: subtitle_rect
+    max_width_px: 810
+
+visual:
+  visual_change_interval_seconds:
+    min: 1.0
+    max: 3.0
+  hook_window_seconds: 3
+  hook_rule: "A visible conflict or question must land inside the first 3 seconds; no slow title-card open."
+  shot_sizes: [wide, medium, close_up, extreme_close_up]
+  continuity_anchors:
+    - "Same costume, hair and age across every shot of an episode"
+    - "Lighting direction stays consistent within a scene"
+    - "Eyeline height inside content_rect"
+
+audio:
+  loudness_lufs: -14
+  true_peak_dbtp: -1
+  music_volume: 0.08
+  dialogue_priority: true
+
+# Per-render-runtime and per-video-model parameters (DEL-08: the approved
+# runtime reads its entry here; switching runtime never re-derives defaults).
+rendering:
+  default_runtime: remotion
+  runtimes:
+    remotion:
+      resolution: "1080x1920"
+      fps: 30
+      codec: h264
+      crf: 18
+      audio_codec: aac
+      audio_bitrate: "192k"
+    hyperframes:
+      resolution: "1080x1920"
+      fps: 30
+      codec: h264
+      crf: 18
+      audio_codec: aac
+      html_capture: true
+    ffmpeg:
+      resolution: "1080x1920"
+      fps: 30
+      codec: libx264
+      preset: medium
+      crf: 18
+      pix_fmt: yuv420p
+      audio_codec: aac
+  video_models:
+    wan3.0-video:
+      output_resolution: 480p
+      upscale_to: "1080x1920"
+      degraded: true
+      duration_seconds: {min: 5, max: 10}
+    molica/wan30video:
+      output_resolution: 480p
+      upscale_to: "1080x1920"
+      degraded: true
+      duration_seconds: {min: 5, max: 10}
+    seedance-2-0:
+      output_resolution: "1080x1920"
+      degraded: false
+      duration_seconds: {min: 5, max: 10}
