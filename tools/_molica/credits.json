@@ -1,0 +1,75 @@
+{
+  "updated_at": "2026-11-07T16:11:32",
+  "source": "/v1/integral/log/query",
+  "prices": {
+    "wan30video": {
+      "credits": 105,
+      "sample": "使用Wan3.0-高稳版生成视频",
+      "specs": {}
+    },
+    "molicas2": {
+      "credits": 171,
+      "sample": "使用视频模型 V1生成视频",
+      "specs": {}
+    },
+    "minimaxh3open": {
+      "credits": 157,
+      "sample": "使用MiniMax-H3-标准版生成视频",
+      "specs": {}
+    },
+    "happyHorse1": {
+      "credits": 1349,
+      "sample": "使用\"HappyHorse1.0\"的\"15s+720P生成\"1次",
+      "specs": {
+        "15s+720P": 1349
+      },
+      "duration": 15.0,
+      "resolution": "720P"
+    },
+    "veo31pro": {
+      "credits": 720,
+      "sample": "使用\"Veo3.1 Pro\"的\"生成视频\"1次",
+      "specs": {}
+    },
+    "mj_video": {
+      "credits": 214,
+      "sample": "使用\"Midjourney V1\"的\"生成视频\"1次",
+      "specs": {}
+    },
+    "luma": {
+      "credits": 171,
+      "sample": "使用\"Luma\"的\"生成视频\"1次",
+      "specs": {}
+    },
+    "sora2prohd": {
+      "credits": 640,
+      "sample": "使用\"Sora2 Pro (高清版) \"的\"生成视频\"1次",
+      "specs": {}
+    },
+    "jimeng35pro": {
+      "credits": 360,
+      "sample": "使用\"即梦3.5 Pro\"的\"10s+720P生成\"1次",
+      "specs": {
+        "10s+720P": 360
+      },
+      "duration": 10.0,
+      "resolution": "720P"
+    }
+  },
+  "labels": {
+    "视频模型 V3.1 Pro": {
+      "credits": 660,
+      "sample": "使用\"视频模型 V3.1 Pro\"的\"生成视频\"1次",
+      "specs": {}
+    }
+  },
+  "aliases": {
+    "Veo3.1 Pro": "veo31pro",
+    "Sora2 Pro (高清版)": "sora2prohd",
+    "Luma": "luma",
+    "HappyHorse1.0": "happyHorse1",
+    "即梦3.5 Pro": "jimeng35pro",
+    "Midjourney V1": "mj_video"
+  },
+  "unmatched": []
+}

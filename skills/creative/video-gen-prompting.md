@@ -4,7 +4,7 @@
 
 When writing prompts for the video generation family (`video_selector`, `seedance_video`,
 `heygen_video`, `wan_video`, `hunyuan_video`, `ltx_video_local`, `ltx_video_modal`,
-`cogvideo_video`). This skill covers the universal prompt vocabulary that works across all
+`cogvideo_video`, `molica_video`). This skill covers the universal prompt vocabulary that works across all
 video generation models. For the **preferred premium default**, see the Seedance 2.0 row
 in the table below.
 

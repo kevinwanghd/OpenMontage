@@ -16,3 +16,5 @@ uvicorn>=0.29
 watchfiles>=0.21
 
 websockets>=14.0       # Eleven v4 Turbo and realtime audio transports
+
+oss2>=2.18.0           # Molica uploads reference images straight to its Aliyun OSS bucket

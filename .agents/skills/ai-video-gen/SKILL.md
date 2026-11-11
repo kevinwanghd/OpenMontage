@@ -24,6 +24,7 @@ Generate AI videos from text prompts. Supports multiple providers via four API p
 | **HeyGen** | `HEYGEN_API_KEY` | VEO 3.1, Kling Pro, Sora v2, Runway Gen-4, Seedance Pro / Lite (1.x) | `heygen_video` |
 | **Kling Official** | `KLING_API_KEY` | Kling official Classic, Turbo, and basic Omni video | `kling_official_video` |
 | **Gemini API** | `GEMINI_API_KEY` / `GOOGLE_API_KEY` | Gemini Omni Flash (generation + conversational editing) | `gemini_omni_video` |
+| **Molica membership** | `MOLICA_TOKEN` | Veo 3.1, Sora 2, Seedance 2/2.5, Jimeng, Wan 3.0, MiniMax H3, Luma, zhipu — all behind one prepaid account | `molica_video` |
 
 **Iterative editing — Gemini Omni.** When the brief calls for *refining an existing clip* (add/remove objects, restyle, change lighting or on-screen text) rather than regenerating, Gemini Omni Flash is the only provider in the fleet with stateful multi-turn editing. See Layer 3 `gemini-omni` for the authoritative prompting guide (reference-image tags, timecode syntax, edit-prompt rules) before writing any prompt for it.
 
@@ -39,6 +40,9 @@ Use whichever configured gateway best matches the user's available providers and
 - **fal.ai:** Set `FAL_KEY` to access Kling, MiniMax, and Veo through fal.ai.
 - **Kling Official:** Set `KLING_API_KEY` to access Kling's official direct API via `provider="kling_official"`.
 - **Gemini API:** Set `GEMINI_API_KEY` or `GOOGLE_API_KEY` to access Gemini Omni video generation and conversational editing.
+- **Molica membership:** Set `MOLICA_TOKEN` to access many video models through one prepaid Molica account (no per-call vendor bill — generations spend the account's 灵力 credits).
+
+**Molica — membership-backed multi-model gateway.** When `MOLICA_TOKEN` is set, `molica_video` reaches Veo 3.1, Sora 2, Seedance 2/2.5, Jimeng, Wan 3.0, MiniMax H3, Luma and zhipu through a single prepaid account. Route to it through the selector with `preferred_provider="molica"`, or pin one model with `model="wan30video"` / `model="seedance2"`. Reference images may be public URLs **or local files** (`image_path`, `image_end_path`, `reference_image_paths`) — local files are uploaded to Molica's own object storage first. Its marginal cash cost is `0.0` (credits are prepaid), so `dry_run` reports `cost_status="membership_quota"`; set `MOLICA_COST_USD_PER_VIDEO` to price it against a USD budget. See Layer 3 `molica-video` for the model catalog, the "service busy" (`ret=500`) fallback rule, and the request shape.
 
 Do not describe any gateway as the default or top choice without checking the registry and current task fit first.
 

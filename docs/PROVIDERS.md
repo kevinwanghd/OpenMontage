@@ -91,6 +91,8 @@ ARK_API_KEY=                 # API key body only; do not include the "Bearer " p
 
 # VIDEO
 HEYGEN_API_KEY=              # HeyGen avatar video gateway
+MOLICA_TOKEN=                # Molica membership session token (molica_video) - see the Molica section
+MOLICA_COST_USD_PER_VIDEO=   # Optional; price a Molica run for the budget tracker
 RUNWAY_API_KEY=              # Runway native + Seedance 2.5, Gemini Omni, MiniMax H3
 SUNO_API_KEY=                # Suno music generation
 
@@ -279,7 +281,304 @@ Official references: [Seedance model list](https://www.volcengine.com/docs/82379
 
 ---
 
-### Alibaba DashScope — Qwen Image + TTS + ASR
+### Molica — Membership Video Gateway (Web API)
+
+Molica (https://web.molica.com.cn) sells an AI assistant membership that
+includes a video studio with Veo, Sora, Seedance, Jimeng, Wan, MiniMax and
+more. It publishes no public API: the web app posts JSON to
+`https://web.molica.com.cn/api` with a session token issued at login. The
+`molica_video` tool speaks that same contract with your own account's token,
+so one membership covers every model the account can reach.
+
+```bash
+# One-time login. The first command sends an SMS code; the second stores the token.
+python -m tools._molica.client login --phone 13800000000
+python -m tools._molica.client login --phone 13800000000 --code 123456
+
+# Verify the stored session
+python -m tools._molica.client check
+
+# Cache the live model catalog so models released after the tool's static
+# snapshot become selectable by the routing layer
+python -m tools._molica.client refresh-catalog
+
+# Learn each model's credit price from this account's own credit ledger
+python -m tools._molica.client refresh-credits
+```
+
+| What | Detail |
+|------|--------|
+| Tool | `molica_video` |
+| Auth | Account session token (`MOLICA_TOKEN`). No public API key exists for Molica |
+| Models | Live catalog from `/api/v1/video/params` — Veo 3.1, Sora 2, Seedance 2/2.5, Jimeng 3.x, Wan 3.0, MiniMax H3, Luma, zhipu and more |
+| Operations | Text-to-video, first/last frame, single reference image, multiple reference images |
+| Cost | Spends the membership's credits (灵力). The marginal cash cost is `0.0`; `dry_run` reports `cost_status="membership_quota"`. Set `MOLICA_COST_USD_PER_VIDEO` to price it against a USD budget |
+| Limits | The token expires — re-run the login command. Model availability is per-model and transient (see below). A generation takes about an hour, and the account runs one video task at a time |
+
+The tool validates model, duration, resolution and aspect ratio against the
+live catalog before spending credits, so an impossible combination fails
+before a task is created. It also fails over on its own when the requested
+model's upstream is congested (`ret=500`): it tries up to three models and
+reports `parameters_adapted` when a substitute could not take the requested
+duration or resolution.
+
+`scripts/molica_cinematic_run.py` drives a full `cinematic` production whose
+scene clips come from this provider — real artifacts, checkpoints and Backlot
+board events:
+
+```bash
+# --preflight prints the credit plan and spends nothing
+python scripts/molica_cinematic_run.py --preflight --scenes 2 --model wan30video
+python scripts/molica_cinematic_run.py --scenes 2 --model wan30video
+```
+
+The run covers the whole pipeline — Molica clips, TTS narration, burned-in
+subtitles, a ducked music bed, edit decisions, a rendered mp4 and a publish
+log — and can stop at every human gate (`--wait-approval`) or reuse assets
+from an earlier run (`--resume`).
+
+Because the account is billed in 灵力 rather than dollars, `estimate_cost`
+asks for a quote instead of reporting `0.0` (a `0.0` would score as free and
+outrank every paid provider). Set `MOLICA_COST_USD_PER_VIDEO` for a flat
+price, or `MOLICA_USD_PER_CREDIT` to convert credits into USD.
+
+`refresh-catalog` writes the live catalog to `tools/_molica/catalog.json`.
+The tool reads that cache at construction time and adds any model it lists
+to its `model` enum, so a model that appears after the shipped snapshot is
+still routable; `get_info()` then reports the cache timestamp and the
+per-model durations and resolutions.
+
+`refresh-credits` reads the account's credit ledger (`/api/v1/integral/log/query`)
+and writes what each model actually costs to `tools/_molica/credits.json`.
+Ledger rows name the model in `change_desc` (e.g. `使用Wan3.0-高稳版生成视频`)
+and the charged amount in `integral_change_num`, so the price table is measured
+from the account rather than guessed. Labels the ledger uses but the live
+catalog does not (older model names) are kept as label-only entries and can be
+mapped onto a model key with `--alias "Veo3.1 Pro=veo31pro"`.
+
+Only video runs are counted. The same ledger also bills image creation
+(`图片创作`), chat, web search and the expiring gift balance, and none of those
+is a price this tool may compare against. A price also belongs to a
+specification rather than to a model as a whole: the ledger bills
+`"15s+720P生成"` and `"10s+720P生成"` separately, so each observed
+duration/resolution pair keeps its own price and the tool uses the one that
+matches the request. Labels are matched with surrounding whitespace stripped,
+because the ledger writes names such as `Sora2 Pro (高清版) ` with a trailing
+space.
+
+The tool resolves a model's price in that order: `MOLICA_CREDIT_COST_<MODEL>`
+environment variable, then the learned ledger price, then a small static
+fallback table. `dry_run` and the tool result report which of the three was
+used as `credits_source` (`ledger_spec` when the price came from the exact
+duration/resolution the request names), so a preflight never blocks a run on a
+wrong price.
+
+Reference images can be public URLs (`image_url`, `image_end_url`,
+`reference_image_urls`) **or local files** (`image_path`, `image_end_path`,
+`reference_image_paths`). A local file is uploaded to Molica's own Aliyun OSS
+bucket first, using the same handshake the web app uses
+(`POST /api/v1/models/snapshot/oss/authorize` with `oss_code="ali-beijing"`
+returns short-lived STS credentials for bucket `molica`; the object is then
+readable at `static.molica.com.cn`), and the resulting public URL is what the
+video API receives.
+
+Operational notes from a live run:
+
+- `POST /api/v1/video/create` answers a submission with `ret=1` and **no task
+  id**. The tool resolves the new task out of `/api/v1/video/page` by matching
+  prompt and model, then polls `/api/v1/video/getvideoinfo` until it is done.
+- Task status: `0` generating, `4` failed (the failure reason is returned as
+  `failure_reason`, e.g. `AI算力抖动`), a finished task carries `video_url`.
+- The default model is `wan30video` (Wan 3.0 stable), the catalog's own
+  default. `jimeng` currently answers every submission with `服务繁忙`, and
+  upstream models intermittently fail with `AI算力抖动` — retry those.
+- Every endpoint is POST-only and answers `{ret, msg, data}`; `ret=20001`
+  means the session expired.
+- A run that Molica refuses answers `ret=1` with **no task id and no error**.
+  Nothing is charged, the task never reaches `/api/v1/video/page`, and the
+  only visible symptom is a submission that "disappears". The tool now
+  reports the account's credit balance, the last ledger rows, and the
+  server's message when that happens.
+- **A generation is slow.** Measured on this account (2026-11-07): a 5s 480P
+  `wan30video` run took about **62 minutes** from submission to a playable
+  `video_url`. The site's own frontend waits on a websocket rather than
+  polling, so it publishes no matching deadline. The tool's default timeout
+  is therefore `7200s` (and `7200 × 3` for the shared standard queue, which
+  can wait long before it starts generating); `timeout_seconds` overrides it.
+- **Only the fast (priority) queue is billed on this membership.** A run on
+  the standard queue (`fast_model: false`, the default) produced no charge in
+  the ledger at all, so the balance guard only applies to the fast queue.
+
+#### Resuming a run that timed out
+
+A timeout used to be the end of the road: the account had paid for the task,
+the video arrived anyway, and the tool's failure threw the task id away —
+there was no way back to the paid-for run. Both halves are fixed now.
+
+- A run that times out while waiting returns `success=false` **with the task
+  id** in `data["video_id"]` and `data["resumable"]=true`, and its error
+  message names the id. The task keeps running on Molica's side.
+- The same task can be collected later with `video_id` (or its alias
+  `task_id`), **without a prompt**:
+
+  ```python
+  MolicaVideo().execute({"video_id": "6aeee2bf9c73297f7ae530f7",
+                         "output_path": "clip.mp4"})
+  ```
+
+  Collecting creates nothing and spends nothing — the account already paid
+  for that task — so it is never blocked by a low balance and it reports
+  `credits_required=0`, `credits_source="resume"` and `cost_usd=0.0`.
+- The task record (`/api/v1/video/getvideoinfo`) carries the request that
+  produced it in its `req` field, so a collected run reports the model,
+  prompt, duration and resolution it was actually made with.
+- `input_schema` therefore accepts a prompt **or** a `video_id`:
+  `anyOf: [{required: [prompt]}, {required: [video_id]}, {required: [task_id]}]`.
+
+#### Credit ledger
+
+The membership's credits are 灵力 (integral). Two endpoints expose them:
+
+| Endpoint | Returns |
+|----------|---------|
+| `POST /api/v1/integral/balance/query` | Current balance |
+| `POST /api/v1/integral/log/query` | Per-run ledger: model, cost, balance after |
+
+Measured cost per run on one 终身会员 account (the ledger is the only
+authoritative price list; it varies by model, duration and resolution):
+
+| Model as billed | Credits |
+|-----------------|---------|
+| Wan 3.0 stable (`wan30video`) | 105 |
+| 视频模型 V1 | 171 |
+| MiniMax H3 standard | 157 |
+| 视频模型 V3.1 Pro | 660 |
+| HappyHorse 1.0, 15s + 720P | 1349 |
+
+A failed run is refunded, which shows up as a positive ledger row. When the
+balance is below the price of the chosen model the submission is refused
+silently, so check the balance before a long batch.
+
+Two things about this ledger that are easy to misread:
+
+- **Only the fast (priority) queue is billed on this membership.** A run on
+  the standard queue produced no charge at all, so the prices above are the
+  fast-queue prices and a standard-queue run is free. The tool's balance
+  guard therefore applies to the fast queue only.
+- **Refunds are positive rows and are not video prices.** A refund row
+  carries a positive `integral_change_num` and a description such as
+  `失败归还`; the learner skips both, so a refund can never lower a model's
+  price.
+
+Routing: `molica_video` is discovered by `video_selector` like any other
+provider. Use `preferred_provider="molica"` to prefer it, or pin one model
+with `model="wan30video"` / `model="seedance2"`. Because its marginal cash
+cost is zero, the selector scores it well on cost efficiency, which matters
+when no metered vendor key is configured.
+
+### Holopix — Membership Video Gateway (Web API)
+
+Holopix (https://holopix.cn) sells AI creative memberships whose compute
+points (算力) cover a video studio built on Seedance-backed models. It
+publishes no public API and no developer console: the web app talks to
+`https://holopix.cn/pino_service_api` with a session token issued at login,
+and the request bodies are encrypted with a static AES key that ships in the
+app bundle. The `holopix_video` tool speaks that same contract with your own
+account's token.
+
+```bash
+# One-time login. The first command sends an SMS code; the second stores the token.
+python -m tools._holopix.client login --phone 13800000000
+python -m tools._holopix.client login --phone 13800000000 --code 123456
+
+# Or take the token from a browser that is already logged in
+python -m tools._holopix.client harvest --cdp http://127.0.0.1:9333
+```
+
+| What | Detail |
+|------|--------|
+| Tool | `holopix_video` |
+| Auth | Account session token (`HOLOPIX_TOKEN`), sent as the `token_production` cookie on the websocket |
+| Transport | One websocket at `wss://holopix.cn/pino_service_api/websocket/<clientId>`; every frame is base64(AES-128-CBC) of the raw JSON object — **no `{"data": ...}` wrapper** |
+| Operations | Text-to-video, first-frame image-to-video, first/last-frame video |
+| Models | `seedance-2-0`, `seedance-mini` (aliases `seedance`, `seedance2`, `seedance-2` all resolve to `seedance-2-0`) |
+| Cost | Spends the account's compute points (算力); `rights()` shows the balance, `rights/pointsRecord` shows what each run cost |
+| Limits | The account may only run one generation at a time. The token expires — re-run `login` or `harvest` |
+
+Operational notes from a live service inspection:
+
+- The web app keeps its session in a cookie named `token_production`. Only a
+  live browser can read it, which is why `harvest` talks to a Chrome started
+  with `--remote-debugging-port`. The cookie is httpOnly, so it has to be
+  read through the DevTools cookie domain of an attached page target. The
+  websocket also needs `Origin: https://holopix.cn`; without it the handshake
+  is refused.
+- A Seedance run is **not** an HTTP submit. The app opens a websocket whose
+  path carries the client id, sends exactly one encrypted frame, and reads
+  the status frames back on the same socket. The server greets first with
+  the literal `FO3V6+YWekojs02VRpkoLg==` and keeps the socket alive with
+  literal `heartBeat` frames; both are skipped by the client.
+- The submitted frame is the app's own `mJe()` builder, field for field:
+  `module`, `userId`, `uniqueId`, `artworkId`, `apiClientId`, `source`,
+  `startTime`, `vipChannel`, `videoModel`, `videoMode`, `prompt`,
+  `videoResolution`, `videoRatio`, `calcRatio`, `videoDuration`,
+  `imageList`, `ctime`. The HTTP endpoints wrap their payloads in
+  `{"data": ...}`; the websocket frame is the object itself.
+- `module` picks the server-side handler. It is a (model, mode) pair:
+  Seedance 2.0 uses 78 text-to-video, 77 image-to-video, 75 start-end and
+  76 reference; Seedance mini uses 82, 81, 79 and 80. The mode names are
+  `text-to-video`, `image-to-video` and `start-end`.
+- Text-to-video sends `videoRatio` as the requested ratio. Every image mode
+  sends `videoRatio: "adaptive"` and puts the measured ratio in `calcRatio`
+  (the app snaps the frame's pixel aspect to the closest of `1:1`, `4:3`,
+  `3:4`, `3:2`, `2:3`, `16:9`, `9:16`, `21:9`).
+- Image modes carry their frames as `imageList` plus a mode-specific field:
+  `originImgUrl` for image-to-video, `firstImageUrl` / `lastImageUrl` /
+  `lastFrameUrl` for start-end. A local file is first uploaded to the
+  account's own Aliyun OSS bucket (`/aliyunOss/getAliyunOssToken`, then a
+  multipart POST, then `/api/localUpload/localUpload` to register it).
+- `apiClientId` is built as `<user id>-<epoch millis><random digits>`, the
+  shape the app generates; the server indexes task rows by that string, so a
+  random uuid is not interchangeable with it.
+- `videoResolution` is one of `480p`, `720p`, `1080p`. The board
+  ("自由画布") flow also uses `768p`, but the Seedance endpoints reject it:
+  the run fails upstream and the points come straight back. The client
+  refuses an unknown resolution before spending anything.
+- The websocket answers with a `status`: 1 queued, 2 generating, 3 done. A
+  finished frame carries `images[]`, and each entry's `image` field is the
+  mp4 url. Negative statuses are refusals: -1 general, -2 content filter,
+  -3 session expired, -100 no compute points left, -200 a generation is
+  already running, -201 package limit reached, -202 membership level too
+  low, -203 membership may not use that model, -300 mode not supported by
+  the model, and 90711 for a team quota overrun.
+- The stream is closed once the run is submitted, so a task collected later
+  is read back from the artwork's version list
+  (`/api/artwork/versionList`), which carries a `videoUrl` per row. The
+  client id is the join key. `/api/artwork/versionInfoByClientId` gives the
+  status but no url, and `/api/task/waitClientIds` is unusable (it returns
+  an empty list).
+- One 480p/5s run costs about 190 credits (算力); `rights()` reports
+  `totalPoints` (spendable) and `foreverPoints` (permanent credits).
+
+#### `videoResolution` and the model key
+
+The model key is not free-form: the server dispatches on the exact key.
+The tool advertises `seedance-2-0` and `seedance-mini`, and resolves the
+aliases other OpenMontage providers use (`seedance`, `seedance2`,
+`seedance-2`) to `seedance-2-0` before the frame is built, so the routing
+layer can match a requested model to this tool while the server still only
+ever sees its own key.
+
+#### A refused run: the credits come back
+
+When the upstream model refuses a run, the server charges it, hands it
+upstream, and refunds it — `pointsRecord` shows a `sub` of 190 followed by
+an `add` of 190 with `"compensation": true`. The websocket reports this as a
+negative status, so the tool returns `refunded: true` and `resumable:
+false`: the round trip is free and resending the same request cannot help.
+A run that timed out locally is a different case — that one is already paid
+for and stays collectable by `client_id`.
+
 
 > **Best for Chinese-language production.** One key unlocks Qwen-Image generation, Qwen-TTS Mandarin narration, and Qwen-ASR with word-level timestamps — the only DashScope path that provides word-level granularity for subtitle alignment.
 
@@ -1455,6 +1754,7 @@ These tools require only FFmpeg or Python packages — no GPU, no API key.
 | **OpenAI** | `OPENAI_API_KEY` | `openai_tts`, `openai_image` | Paid only |
 | **xAI** | `XAI_API_KEY` | `grok_image`, `grok_video` | Paid only |
 | **Runway** | `RUNWAY_API_KEY` | `runway_video` | Free trial + paid |
+| **Molica** | `MOLICA_TOKEN` | `molica_video` | Membership credits (灵力) |
 | **Higgsfield** | `HIGGSFIELD_API_KEY` + `HIGGSFIELD_API_SECRET` | `higgsfield_video` | Subscription ($15-84/mo) |
 | **HeyGen** | `HEYGEN_API_KEY` | `heygen_video` | Pay-as-you-go |
 | **Suno** | `SUNO_API_KEY` | `suno_music` | Pay-as-you-go |
