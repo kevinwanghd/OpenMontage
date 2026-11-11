@@ -18,6 +18,7 @@ Contract highlights:
 - M0 makes zero external API calls: ``demo --mock`` seeds a local episode and
   the whole hello-world path is local files only.
 """
+# risk:untested reason:"CLI 由 tests/contracts/test_shortdrama_cli.py 覆盖, thin 模式静态门禁无法绑定运行证据, 按仓库规范登记豁免" owner:@kevinwanghd reviewed:2026-11-11
 from __future__ import annotations
 
 import argparse
