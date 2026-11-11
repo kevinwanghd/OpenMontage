@@ -591,15 +591,6 @@ def test_exit_5_two_episode_writers_lose_nothing_and_never_oversubscribe(project
     assert combined_reserved == float(2 * reservations)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Known T3/ORC-03 defect reported in the T11 PR: SubmissionLedger.record_intent "
-        "reads find_by_input_hash() outside its append lock, so two concurrent writers "
-        "for the same inputs both pass the duplicate check and double-book the budget. "
-        "The test states the required invariant; removing the marker is the fix signal."
-    ),
-)
 def test_exit_5_duplicate_paid_intent_is_atomic_across_concurrent_writers(projects):
     barrier = threading.Barrier(2)
 

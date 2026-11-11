@@ -65,7 +65,9 @@ class LedgerEntry:
 
 
 class SubmissionLedger:
-    _lock = threading.Lock()
+    # Re-entrant: the duplicate check and the append must share one critical
+    # section, and the append itself takes this same class-wide lock.
+    _lock = threading.RLock()
 
     def __init__(self, project: str, episode: str, projects_dir: Path = PROJECTS_DIR):
         self.project = project
@@ -108,15 +110,19 @@ class SubmissionLedger:
                       max_age_s: float = 86400, **kw) -> dict[str, Any]:
         """Record a paid intent. Refuses if an unresolved attempt for the same
         inputs already exists (idempotency / no duplicate paid submission)."""
-        for prior in self.find_by_input_hash(input_hash):
-            if prior["billing_state"] in ("pending", "submitted", UNKNOWN, "reserved"):
-                raise DuplicateSubmissionError(
-                    f"unresolved attempt {prior['entry_id']} for same inputs; reconcile first")
-        reservation = {"amount": reserve_amount, "max_age_s": max_age_s, "state": HELD} if reserve_amount else None
-        entry = LedgerEntry(intent=intent, provider=provider, input_hash=input_hash,
-                            currency=currency, reservation=reservation,
-                            billing_state="reserved" if reservation else "pending", **kw)
-        return self._append(entry)
+        # Check-and-append is one critical section: if the duplicate check ran
+        # outside the append lock, two concurrent writers for the same inputs
+        # would both pass it and double-book the budget (ORC-03).
+        with self._lock:
+            for prior in self.find_by_input_hash(input_hash):
+                if prior["billing_state"] in ("pending", "submitted", UNKNOWN, "reserved"):
+                    raise DuplicateSubmissionError(
+                        f"unresolved attempt {prior['entry_id']} for same inputs; reconcile first")
+            reservation = {"amount": reserve_amount, "max_age_s": max_age_s, "state": HELD} if reserve_amount else None
+            entry = LedgerEntry(intent=intent, provider=provider, input_hash=input_hash,
+                                currency=currency, reservation=reservation,
+                                billing_state="reserved" if reservation else "pending", **kw)
+            return self._append(entry)
 
     def _update(self, entry_id: str, **changes) -> dict[str, Any]:
         rec = dict(self.get(entry_id))

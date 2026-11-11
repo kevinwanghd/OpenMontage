@@ -17,6 +17,9 @@ M0: local files + monkeypatched tool registry only, zero external API calls.
 from __future__ import annotations
 
 import copy
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -600,3 +603,51 @@ def test_legacy_supports_keys_are_normalized_and_booleans_not_upgraded(tmp_path,
     # `resolution: true` names no concrete resolution -> stays unknown.
     assert caps["output_resolutions"] == "unknown"
     assert caps["aspect_ratios"] == "unknown"
+
+# --- console encoding safety ------------------------------------------------
+
+
+class _GbkConsole:
+    """Mimics a GBK ``TextIOWrapper``: every write must encode strictly."""
+
+    encoding = "gbk"
+
+    def __init__(self) -> None:
+        self.chunks: list[bytes] = []
+
+    def write(self, text: str) -> None:
+        self.chunks.append(text.encode("gbk"))  # raises exactly like the real CRT
+
+    def getvalue(self) -> str:
+        return b"".join(self.chunks).decode("gbk")
+
+
+def test_cli_write_degrades_unencodable_characters_on_gbk_console():
+    """`om doctor` must not crash when a report carries a character GBK cannot
+    encode (the reported defect: `¥` in a degradation note on a CN console)."""
+    from shortdrama import cli
+
+    console = _GbkConsole()
+    report = {
+        "status": "DEGRADED",
+        "reasons": [{"message": "wan3.0-video 480P at ¥0.30/s"}],
+    }
+    cli._write(report, True, stream=console)  # must not raise UnicodeEncodeError
+
+    rendered = console.getvalue()
+    assert "0.30/s" in rendered, "the readable part of the reason must survive"
+    assert rendered.encode("gbk")  # the whole line stayed valid GBK
+
+
+def test_om_doctor_survives_a_gbk_console_end_to_end():
+    """The real entry point, under a GBK stdio encoding, exits cleanly."""
+    proc = subprocess.run(
+        [sys.executable, "-m", "shortdrama", "doctor", "--json"],
+        cwd=REPO_ROOT,
+        env={**os.environ, "PYTHONIOENCODING": "gbk"},
+        capture_output=True,
+    )
+    stderr = proc.stderr.decode("gbk", errors="replace")
+    assert "UnicodeEncodeError" not in stderr, stderr
+    assert proc.returncode in (0, 4), stderr  # 0 healthy, 4 BLOCKED -- never 1
+    proc.stdout.decode("gbk")  # every byte written is valid GBK

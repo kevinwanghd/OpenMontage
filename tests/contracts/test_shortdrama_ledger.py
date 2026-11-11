@@ -4,6 +4,9 @@ Guards crash recovery without duplicate paid submission (ORC-03), reservation
 lifecycle (F16), single-owner shot-state projection (F6), and the resume-state
 vocabulary get_next_stage cannot express (F4).
 """
+import threading
+from concurrent.futures import ThreadPoolExecutor
+
 import pytest
 
 from lib.submission_ledger import SubmissionLedger, DuplicateSubmissionError, LedgerError
@@ -39,6 +42,33 @@ def test_duplicate_paid_submission_refused_while_unresolved(ledger):
     ledger.record_intent("shot_gen", "molica", "hash1", reserve_amount=2.0)
     with pytest.raises(DuplicateSubmissionError):
         ledger.record_intent("shot_gen", "molica", "hash1", reserve_amount=2.0)
+
+
+def test_concurrent_same_input_reserves_exactly_once(tmp_path):
+    """The duplicate check and the reservation must be one atomic operation:
+    N concurrent writers for identical inputs may reserve the budget once, and
+    every other writer must see DuplicateSubmissionError (ORC-03)."""
+    workers = 8
+    barrier = threading.Barrier(workers)
+
+    def attempt():
+        # Fresh instance per writer, like separate CLI/service processes would.
+        ledger = SubmissionLedger("drama", "ep01", projects_dir=tmp_path)
+        barrier.wait(timeout=10)
+        try:
+            ledger.record_intent("shot_gen", "molica", "same-hash", reserve_amount=2.0)
+            return "reserved"
+        except DuplicateSubmissionError:
+            return "duplicate"
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        outcomes = list(pool.map(lambda _: attempt(), range(workers)))
+
+    assert outcomes.count("reserved") == 1, outcomes
+    assert outcomes.count("duplicate") == workers - 1, outcomes
+    ledger = SubmissionLedger("drama", "ep01", projects_dir=tmp_path)
+    assert len(ledger._records()) == 1
+    assert ledger.reserved_total("CNY") == 2.0
 
 
 def test_resolved_unknown_frees_budget_and_allows_resubmit(ledger, tmp_path):
