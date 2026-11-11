@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>L1 审核台 · OpenMontage Short-Drama</title>
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body data-mode="review">
+<a class="skip-link" href="#candidate-wall">跳到候选墙</a>
+
+<header class="app-header">
+  <div class="brand">
+    <span class="wordmark">OpenMontage</span>
+    <h1>L1 审核台</h1>
+    <p class="subtitle">UI-11 · 待审项 only · 键盘流</p>
+  </div>
+
+  <div class="episode-picker">
+    <label for="episode-select">剧集</label>
+    <select id="episode-select" aria-label="选择剧集"></select>
+    <button id="reload-button" type="button" class="ghost" title="重新加载队列">刷新</button>
+  </div>
+
+  <div class="header-stats">
+    <span id="queue-count" aria-live="polite">— 待审</span>
+    <span id="mode-badge" class="mode-badge" data-mode="review" role="status">REVIEW 模式</span>
+  </div>
+
+  <span class="spacer"></span>
+  <button id="help-toggle" type="button" class="ghost" aria-haspopup="dialog" aria-controls="help-dialog">键盘帮助</button>
+</header>
+
+<section id="status-legend" class="status-legend" data-region="status-language" aria-label="状态语言">
+  <h2 class="sr-only">状态语言</h2>
+  <span class="status-token" data-status="PASS" title="机器与人检均通过">
+    <span class="status-icon" aria-hidden="true">✓</span><span class="status-text">PASS</span>
+  </span>
+  <span class="status-token" data-status="FAIL" title="阈值未达标或人检驳回">
+    <span class="status-icon" aria-hidden="true">✕</span><span class="status-text">FAIL</span>
+  </span>
+  <span class="status-token" data-status="UNKNOWN" title="机器无法判定，需人工确认">
+    <span class="status-icon" aria-hidden="true">?</span><span class="status-text">UNKNOWN</span>
+  </span>
+  <span class="status-token" data-status="N/A" title="该阶段不适用此检查">
+    <span class="status-icon" aria-hidden="true">—</span><span class="status-text">N/A</span>
+  </span>
+  <span class="status-token" data-status="BLOCKED" title="预算或其他门禁阻塞，需先处理">
+    <span class="status-icon" aria-hidden="true">⊘</span><span class="status-text">BLOCKED</span>
+  </span>
+  <span class="status-token" data-status="STALE" title="候选版本已被取代，需重审">
+    <span class="status-icon" aria-hidden="true">⟳</span><span class="status-text">STALE</span>
+  </span>
+</section>
+
+<p id="stale-banner" class="banner stale" hidden>
+  <span class="status-token" data-status="STALE"><span class="status-icon" aria-hidden="true">⟳</span><span class="status-text">STALE</span></span>
+  有决策落在已被取代的候选上，请重审当前候选。
+</p>
+<p id="error-banner" class="banner error" role="alert" hidden></p>
+
+<main class="workspace">
+  <section id="candidate-wall" class="panel candidate-wall" data-region="candidate-wall" aria-labelledby="wall-heading">
+    <header class="panel-header">
+      <h2 id="wall-heading">候选墙 · L1 contact sheet</h2>
+      <span id="wall-summary" class="hint">—</span>
+    </header>
+    <div id="wall-grid" class="wall-grid" role="grid" aria-label="待审项候选墙，按优先度排序"></div>
+    <p id="wall-empty" class="empty-state" hidden>24 镜已审完—查看决策</p>
+    <p id="partial-note" class="hint" hidden>部分镜头未生成（not-generated）· 仅已生成候选可审</p>
+  </section>
+
+  <section id="review-panel" class="panel review-panel" aria-labelledby="item-title">
+    <header class="panel-header">
+      <h2 id="item-title">选择一项开始审核</h2>
+      <span id="item-status" class="status-slot" aria-live="polite"></span>
+    </header>
+
+    <div class="item-meta">
+      <dl>
+        <div><dt>阶段</dt><dd id="meta-stage">—</dd></div>
+        <div><dt>镜头</dt><dd id="meta-slot">—</dd></div>
+        <div><dt>优先度</dt><dd id="meta-priority">—</dd></div>
+        <div><dt>人脸相似度</dt><dd id="meta-face">—</dd></div>
+        <div><dt>候选版本</dt><dd id="meta-version">—</dd></div>
+      </dl>
+      <ul id="criteria-list" class="criteria" aria-label="验收标准"></ul>
+    </div>
+
+    <div id="player" class="player" data-region="player" aria-label="播放器">
+      <img id="player-image" class="player-media" alt="" hidden>
+      <video id="player-video" class="player-media" controls preload="metadata" playsinline hidden></video>
+      <p id="player-empty" class="empty-state">选择候选后在此播放</p>
+      <div class="player-actions">
+        <a id="open-original" href="#" target="_blank" rel="noopener" hidden>打开原图/原视频</a>
+        <span id="player-caption" class="hint"></span>
+      </div>
+    </div>
+
+    <div id="sampling-controls" class="sampling" data-region="sampling" aria-label="抽检比例">
+      <fieldset>
+        <legend>抽检比例</legend>
+        <label class="inline"><input type="radio" name="sampling-mode" value="all"> 全检 all</label>
+        <label class="inline"><input type="radio" name="sampling-mode" value="sampled" checked> 抽检 sampled</label>
+        <input id="ratio-slider" type="range" min="0" max="1" step="0.05" value="0.35"
+               aria-label="抽检比例滑块">
+        <output id="ratio-value" for="ratio-slider">35%</output>
+      </fieldset>
+    </div>
+
+    <div id="cost-panel" class="cost-panel" data-region="cost" aria-label="成本">
+      <h3>成本</h3>
+      <p>本项：<strong id="item-cost" data-cost="item">$0.00</strong></p>
+      <p>
+        已花：<strong id="spent" data-cost="spent">$0.00</strong>
+        / 预算：<input id="budget-input" type="number" min="0" step="0.5" value="10.00"
+                      aria-label="预算（美元）"> USD
+      </p>
+      <progress id="budget-bar" max="10" value="0" aria-label="预算使用进度"></progress>
+      <p id="budget-status" class="status-slot" aria-live="polite"></p>
+      <p class="hint">待核准合计：<span id="pending-cost" data-cost="pending">$0.00</span>（含期望重试成本以 API 为准）</p>
+    </div>
+
+    <div class="actions" role="toolbar" aria-label="六动作">
+      <button type="button" class="action accept" data-action="accept" title="A">通过 <kbd>A</kbd></button>
+      <button type="button" class="action reject" data-action="reject" title="R">驳回 <kbd>R</kbd></button>
+      <button type="button" class="action" data-action="pick_variant" title="1/2/3 选择候选后确认">选变体 <kbd>1/2/3</kbd></button>
+      <button type="button" class="action" data-action="edit_prompt" title="E">改提示词 <kbd>E</kbd></button>
+      <button type="button" class="action" data-action="send_back" title="退回上游重做">打回</button>
+      <button type="button" class="action" data-action="skip" title="S">跳过 <kbd>S</kbd></button>
+    </div>
+
+    <div id="reject-panel" class="reject-panel" hidden aria-label="驳回原因码">
+      <p class="hint">REJECT 模式：按 <kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd> 选原因码，<kbd>Esc</kbd> 退出。</p>
+      <div id="reason-code-list" class="reason-code-list" role="group" aria-label="驳回原因码"></div>
+      <button id="confirm-reject" type="button" class="action reject" disabled>确认驳回</button>
+    </div>
+
+    <div class="notes">
+      <label for="note-input">备注</label>
+      <textarea id="note-input" rows="2" placeholder="可选：人检说明"></textarea>
+      <label for="prompt-patch">提示词补丁（E）</label>
+      <textarea id="prompt-patch" rows="2" placeholder="edit_prompt 时提交"></textarea>
+      <button id="submit-prompt" type="button" class="ghost">提交提示词补丁</button>
+    </div>
+
+    <button id="undo-button" type="button" class="ghost undo">撤销上一条 <kbd>U</kbd></button>
+
+    <section id="library-panel" class="library-panel" aria-labelledby="library-heading">
+      <header class="panel-header">
+        <h3 id="library-heading">参考素材库</h3>
+        <label for="library-kind" class="sr-only">素材类型</label>
+        <select id="library-kind">
+          <option value="shot">shot</option>
+          <option value="keyframe">keyframe</option>
+          <option value="character">character</option>
+          <option value="voice">voice</option>
+          <option value="music">music</option>
+          <option value="reference">reference</option>
+        </select>
+        <button id="library-refresh" type="button" class="ghost">加载</button>
+      </header>
+      <div id="library-grid" class="library-grid" role="list" aria-label="资产库结果"></div>
+      <p id="library-empty" class="empty-state" hidden>暂无可复用素材</p>
+    </section>
+  </section>
+</main>
+
+<footer class="app-footer">
+  <span id="connection-status" aria-live="polite">就绪</span>
+  <span id="status-live" class="sr-only" aria-live="polite"></span>
+  <span class="hint">J/K 上下 · A 通过 · R 驳回 · 1/2/3 候选/原因码 · E 改提示词 · U 撤销 · S 跳过 · B 标疑 · Esc 退出模式</span>
+</footer>
+
+<dialog id="help-dialog" aria-labelledby="help-title">
+  <form method="dialog">
+    <h2 id="help-title">键盘映射</h2>
+    <table>
+      <thead><tr><th>按键</th><th>动作</th></tr></thead>
+      <tbody id="help-rows"></tbody>
+    </table>
+    <button type="submit">关闭</button>
+  </form>
+</dialog>
+
+<!-- §11.3 keyboard map: single source tested against the console contract. -->
+<script type="application/json" id="keyboard-map">
+{
+  "j": {"action": "next_item", "label": "下一个待审项"},
+  "k": {"action": "previous_item", "label": "上一个待审项"},
+  "a": {"action": "accept", "label": "通过"},
+  "r": {"action": "reject_mode", "label": "进入驳回模式"},
+  "e": {"action": "edit_prompt", "label": "改提示词"},
+  "u": {"action": "undo", "label": "撤销上一条"},
+  "s": {"action": "skip", "label": "跳过"},
+  "b": {"action": "flag_questionable", "label": "标疑"},
+  "1": {"action": "candidate_or_reason", "label": "候选/原因码 1"},
+  "2": {"action": "candidate_or_reason", "label": "候选/原因码 2"},
+  "3": {"action": "candidate_or_reason", "label": "候选/原因码 3"},
+  "Escape": {"action": "exit_mode", "label": "退出驳回模式"}
+}
+</script>
+
+<!-- REV-03 per-stage reason codes, mirrored from lib/review.STAGE_REASON_CODES.
+     tests/contracts/test_shortdrama_ui.py fails if this drifts from the backend. -->
+<script type="application/json" id="reason-codes">
+{
+  "brief": ["HOOK_WEAK", "NARRATIVE_WEAK", "OTHER"],
+  "beat_map": ["HOOK_WEAK", "NARRATIVE_WEAK", "OTHER", "PACING"],
+  "script": ["DIALECT_OFF", "DIALOGUE_CUT", "HOOK_WEAK", "NARRATIVE_WEAK", "OTHER", "PACING"],
+  "character_cast": ["FACE_MISMATCH", "IDENTITY_UNKNOWN", "OTHER", "WARDROBE_DRIFT"],
+  "scene_plan": ["FRAMING_BAD", "NARRATIVE_WEAK", "OTHER", "PACING"],
+  "keyframe": ["ARTIFACT", "FACE_MISMATCH", "FRAMING_BAD", "IDENTITY_UNKNOWN", "LIGHTING_WRONG", "OFF_POSE", "OTHER", "WARDROBE_DRIFT"],
+  "shot_gen": ["ARTIFACT", "DIALOGUE_CUT", "FACE_MISMATCH", "FRAMING_BAD", "IDENTITY_UNKNOWN", "LIGHTING_WRONG", "LIP_SYNC_FAIL", "MOTION_UNNATURAL", "MOTION_WRONG", "OFF_POSE", "OTHER", "WARDROBE_DRIFT"],
+  "assembly": ["CLIPPING", "DIALOGUE_CUT", "LIP_SYNC_FAIL", "MOTION_UNNATURAL", "NARRATIVE_WEAK", "OTHER", "PACING", "SUBTITLE_MISALIGN"],
+  "delivery": ["ARTIFACT", "CLIPPING", "FRAMING_BAD", "OTHER", "SUBTITLE_MISALIGN"]
+}
+</script>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>
