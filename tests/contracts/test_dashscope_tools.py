@@ -691,7 +691,14 @@ class TestDashscopeRegistryDiscovery:
             if t.provider == "dashscope"
         ]
         names = {t.name for t in dashscope_tools}
-        assert names == {"dashscope_image", "dashscope_tts", "dashscope_asr"}
+        # dashscope_video joined the provider in T10 (WP-F); the contract tools
+        # above must still all be discoverable alongside it.
+        assert names == {
+            "dashscope_image",
+            "dashscope_tts",
+            "dashscope_asr",
+            "dashscope_video",
+        }
 
     def test_image_selector_finds_dashscope(self):
         """image_selector should auto-discover dashscope_image by capability."""
