@@ -39,6 +39,20 @@ import numpy as np
 from lib.corpus import EMBED_DIM, ClipRecord, Corpus
 
 KINDS = ("image", "video")
+# LIB-02: the seven *semantic* asset tables. Unlike ``KINDS`` (the corpus media
+# kinds used for video/image retrieval), these name what an asset *is*. They
+# live under the same ``library/<kind>/<asset_id>/`` layout but are not corpus
+# rows; :mod:`lib.asset_tables` layers them on top without changing this class.
+SEMANTIC_KINDS = (
+    "characters",
+    "scenes",
+    "props",
+    "voices",
+    "music",
+    "shots",
+    "rejections",
+)
+ALL_KINDS = KINDS + SEMANTIC_KINDS
 ASSET_VERSION = "1.0"
 IDENTITY_STORE_VERSION = "v1"
 TEXT_INDEX_MODEL = "local-hash-v1"
