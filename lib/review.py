@@ -1,4 +1,4 @@
-"""Shot-level human review for the short-drama pipeline (REV-01/02/03/13, ORC-04).
+"""Shot-level human review for the short-drama pipeline (REV-01/02/03/05/06/10/13/14, ORC-04).
 
 This is the SHOT-granularity review layer. Stage-level approval gates remain in
 ``scripts/pipeline_gate.py`` (``approve_stage`` / ``stage_gate``); this module does
@@ -15,7 +15,13 @@ Invariants enforced here:
 - ``UNKNOWN`` is never silently treated as ``PASS``; a human may override an
   UNKNOWN only with recorded evidence (X-2).
 - Sampling is deterministic (per-episode salt), so changing the ratio changes
-  queue length only, never regenerates anything (REV-02/10).
+  queue length only, never regenerates anything (REV-02/10). Policy changes are
+  persisted beside the log and never touch items or prior decisions.
+- Rejections trip a per-shot circuit breaker at N=3 (REV-06); the streak and
+  its reset rules live in :mod:`lib.review_strategies`.
+- The log is the review timing source of truth (REV-14): item ``created_at`` is
+  the open time, decision ``decided_at`` the close time; stats expose
+  items/minute and L1/L2/L3 minutes. Timing stays local (X-15).
 
 M0: local files only, zero external API calls.
 """
@@ -24,6 +30,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import statistics
 import threading
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
@@ -33,6 +40,12 @@ from typing import Any, Optional
 from jsonschema import Draft202012Validator
 
 from lib.checkpoint import PROJECTS_DIR
+from lib.review_strategies import (
+    BLOCKED_WHEN_TRIPPED, BreakerState, RetryPolicy,
+    effective_decision_chain, evaluate_breaker,
+)
+
+POLICY_FILE = "review_policy.json"
 
 _SCHEMA_PATH = Path(__file__).resolve().parents[1] / "schemas" / "artifacts" / "review_decision.schema.json"
 _SCHEMA = json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
@@ -82,12 +95,50 @@ class StaleReviewError(ReviewError):
     """Decision targets a superseded candidate version (HTTP 409 STALE_REVIEW)."""
 
 
+class CircuitBreakerOpenError(ReviewError):
+    """Shot hit the consecutive-reject limit; send_back or human override (REV-06)."""
+
+    def __init__(self, review_id: str, limit: int, streak: int):
+        self.review_id = review_id
+        self.limit = limit
+        self.consecutive_rejects = streak
+        super().__init__(
+            f"circuit breaker open for '{review_id}': {streak} consecutive rejects "
+            f"(limit {limit}); send_back or override with recorded evidence")
+
+
 class UnknownReviewError(ReviewError):
     """review_id not found."""
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _parse_ts(value: Optional[str]) -> Optional[datetime]:
+    """Parse an ISO timestamp; naive values are treated as UTC (REV-14)."""
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    # risk:swallowed-exception reason:"时间戳来自 append-only 审核日志的既有记录，无法解析时按缺失计时处理以免整份吞吐统计失败，原始字符串仍原样保留在事件里" owner:@kevin reviewed:2026-11-11
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _layer(priority: Any) -> str:
+    """Map item priority to the layered review model: L1 must-view, L2, L3."""
+    try:
+        p = int(priority or 0)
+    # risk:swallowed-exception reason:"priority 来自既有审核日志或外部导入，非法值按 must-view 分层处理以免单条脏数据使整份统计投影失败" owner:@kevin reviewed:2026-11-11
+    except (TypeError, ValueError):
+        p = 0
+    if p <= 0:
+        return "L1"
+    if p == 1:
+        return "L2"
+    return "L3"
 
 
 def _stable_bucket(salt: str, review_id: str) -> int:
@@ -103,6 +154,27 @@ class ReviewPolicy:
     face_sim_threshold: float = 0.75
     always_detail: tuple[str, ...] = ("hook", "climax")
     sampling_salt: str = "default"
+
+    def validate(self) -> "ReviewPolicy":
+        if self.mode not in ("all", "sampled"):
+            raise ReviewValidationError(
+                f"invalid review mode '{self.mode}' (expected all|sampled)")
+        if not 0.0 <= float(self.detail_ratio) <= 1.0:
+            raise ReviewValidationError(
+                f"detail_ratio {self.detail_ratio} outside 0..1")
+        if not 0.0 <= float(self.face_sim_threshold) <= 1.0:
+            raise ReviewValidationError(
+                f"face_sim_threshold {self.face_sim_threshold} outside 0..1")
+        return self
+
+    @classmethod
+    def from_dict(cls, data: Optional[dict[str, Any]]) -> "ReviewPolicy":
+        data = data or {}
+        known = {f.name for f in cls.__dataclass_fields__.values()}
+        kwargs = {k: v for k, v in data.items() if k in known}
+        if "always_detail" in kwargs:
+            kwargs["always_detail"] = tuple(kwargs["always_detail"] or ())
+        return cls(**kwargs)
 
 
 @dataclass
@@ -169,6 +241,48 @@ class ReviewStore:
                 out.append(json.loads(line))
         return out
 
+    def _decision_records(self) -> dict[str, Optional[dict[str, Any]]]:
+        """Latest effective decision *record* per review_id (REV-13/14).
+
+        Unlike ``_effective`` (which projects the inner decision object) this
+        keeps the candidate version the decision was made on, so stale detection
+        and timing do not need a second writer or a schema change.
+        """
+        out: dict[str, Optional[dict]] = {}
+        for rec in self._records():
+            rid = rec.get("review_id")
+            et = rec.get("event_type")
+            if et == "decision":
+                out[rid] = rec
+            elif et == "undo":
+                target = rec.get("supersedes") or rid
+                out[target] = None
+        return out
+
+    # --- per-episode policy (REV-10) ---
+
+    def get_policy(self) -> ReviewPolicy:
+        """Load the per-episode review policy (defaults when never written)."""
+        path = self.dir / POLICY_FILE
+        if not path.exists():
+            return ReviewPolicy()
+        return ReviewPolicy.from_dict(json.loads(path.read_text(encoding="utf-8")))
+
+    def set_policy(self, policy: ReviewPolicy) -> ReviewPolicy:
+        """Persist the sampling policy; never touches items or decisions.
+
+        ``reviews.jsonl`` is not appended to and no candidate is regenerated —
+        changing the ratio only changes ``pending()`` length (REV-10).
+        """
+        policy.validate()
+        self.dir.mkdir(parents=True, exist_ok=True)
+        path = self.dir / POLICY_FILE
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(json.dumps(asdict(policy), ensure_ascii=False, indent=2) + "\n",
+                       encoding="utf-8", newline="\n")
+        tmp.replace(path)
+        return policy
+
     # --- items & effective decisions ---
 
     def add_item(self, item: ReviewItem) -> dict[str, Any]:
@@ -213,7 +327,7 @@ class ReviewStore:
 
         Changing ``detail_ratio`` changes queue length only; nothing regenerates.
         """
-        policy = policy or ReviewPolicy()
+        policy = (policy or ReviewPolicy()).validate()
         undecided = [v["item"] for v in self._effective().values() if v["decision"] is None]
         must = [i for i in undecided if i.get("priority", 0) == 0]
         rest = [i for i in undecided if i.get("priority", 0) > 0]
@@ -240,7 +354,9 @@ class ReviewStore:
     # --- mutation authority ---
 
     def decide(self, review_id: str, decision: ReviewDecision,
-               candidate_version: Optional[str] = None) -> dict[str, Any]:
+               candidate_version: Optional[str] = None, *,
+               enforce_breaker: bool = True,
+               retry_policy: Optional[RetryPolicy] = None) -> dict[str, Any]:
         eff = self.get(review_id)
         item = eff["item"]
         stage = item.get("stage", "")
@@ -267,6 +383,12 @@ class ReviewStore:
             raise StaleReviewError(
                 f"candidate version '{ver}' != current '{item.get('candidate_version')}' (STALE_REVIEW)")
 
+        if enforce_breaker and decision.action in BLOCKED_WHEN_TRIPPED:
+            state = self.breaker_state(review_id, policy=retry_policy)
+            if state["tripped"] and not (decision.override and decision.evidence):
+                raise CircuitBreakerOpenError(
+                    review_id, state["limit"], state["consecutive_rejects"])
+
         rec = {
             "review_id": review_id, "stage": stage, "slot": item.get("slot"),
             "event_type": "decision",
@@ -282,9 +404,81 @@ class ReviewStore:
         return self._append({
             "review_id": review_id, "stage": item.get("stage"), "slot": item.get("slot"),
             "event_type": "undo",
-            "supersedes": review_id, "metadata": {"reason": reason},
+            "supersedes": review_id,
+            "metadata": {"reason": reason, "compensation": True},
             "created_at": _now(),
         })
+
+    # --- circuit breaker (REV-06) ---
+
+    def breaker_state(self, review_id: str,
+                      policy: Optional[RetryPolicy] = None) -> dict[str, Any]:
+        """Current per-shot breaker state projected from the append-only log."""
+        item = self.get(review_id)["item"]
+        chain = effective_decision_chain(self._records(), review_id)
+        state: BreakerState = evaluate_breaker(
+            chain, policy,
+            current_candidate_version=item.get("candidate_version"))
+        return state.as_dict()
+
+    # --- stale decisions (REV-13) ---
+
+    def stale(self) -> list[dict[str, Any]]:
+        """Decisions made on a candidate version that is no longer current.
+
+        The log is never mutated: a stale decision stays recorded and is
+        compensated with ``undo`` (``om review list --stale`` surface).
+        """
+        out: list[dict[str, Any]] = []
+        decisions = self._decision_records()
+        for rid, eff in self._effective().items():
+            rec = decisions.get(rid)
+            if not rec:
+                continue
+            current = eff["item"].get("candidate_version")
+            decided_on = rec.get("candidate_version")
+            if current and decided_on and current != decided_on:
+                out.append({
+                    "review_id": rid,
+                    "stage": eff["item"].get("stage"),
+                    "slot": eff["item"].get("slot"),
+                    "decision": rec.get("decision"),
+                    "decided_on_candidate_version": decided_on,
+                    "current_candidate_version": current,
+                })
+        return sorted(out, key=lambda x: x["review_id"])
+
+    # --- timing (REV-14) ---
+
+    def timings(self) -> list[dict[str, Any]]:
+        """Per-item open/close timestamps and review duration.
+
+        ``opened_at`` is the item's ``created_at``; ``decided_at`` comes from
+        the effective decision. All data stays in the episode log (X-15).
+        """
+        decisions = self._decision_records()
+        out: list[dict[str, Any]] = []
+        for rid, eff in self._effective().items():
+            item = eff["item"]
+            rec = decisions.get(rid)
+            decision = rec.get("decision") if rec else None
+            opened_at = item.get("created_at")
+            decided_at = decision.get("decided_at") if decision else None
+            opened = _parse_ts(opened_at)
+            decided = _parse_ts(decided_at)
+            seconds = None
+            if opened and decided:
+                seconds = max(0.0, (decided - opened).total_seconds())
+            out.append({
+                "review_id": rid,
+                "stage": item.get("stage"),
+                "slot": item.get("slot"),
+                "layer": _layer(item.get("priority")),
+                "opened_at": opened_at,
+                "decided_at": decided_at,
+                "seconds": seconds,
+            })
+        return sorted(out, key=lambda t: (t["decided_at"] or "", t["review_id"]))
 
     # --- stats (REV-01) ---
 
@@ -314,4 +508,44 @@ class ReviewStore:
             "action_distribution": actions,
             "reason_code_distribution": reason_dist,
             "first_pass_accept_rate": (first_pass_accept / decided) if decided else None,
+            "timing": self._timing_stats(),
+        }
+
+    def _timing_stats(self) -> dict[str, Any]:
+        """Throughput metrics over the append-only timing fields (REV-14)."""
+        timings = self.timings()
+        durations = [t["seconds"] for t in timings if t["seconds"] is not None]
+        opened = [ts for ts in (_parse_ts(t["opened_at"]) for t in timings) if ts]
+        closed = [ts for ts in (_parse_ts(t["decided_at"]) for t in timings) if ts]
+
+        elapsed_seconds = None
+        if opened and closed:
+            span = max(closed) - min(opened)
+            elapsed_seconds = max(0.0, span.total_seconds())
+        elapsed_minutes = (elapsed_seconds / 60.0) if elapsed_seconds is not None else None
+
+        by_layer = {"L1": [], "L2": [], "L3": []}
+        for t in timings:
+            if t["seconds"] is not None:
+                by_layer[t["layer"]].append(t["seconds"])
+
+        def _minutes(values: list[float]) -> float:
+            return round(sum(values) / 60.0, 3)
+
+        return {
+            "privacy_scope": "local episode log only; no upload (X-15)",
+            "opened_at": min(opened).isoformat() if opened else None,
+            "last_decided_at": max(closed).isoformat() if closed else None,
+            "elapsed_minutes": round(elapsed_minutes, 3) if elapsed_minutes is not None else None,
+            "review_minutes": _minutes(durations),
+            "median_review_seconds": (round(statistics.median(durations), 3)
+                                      if durations else None),
+            "items_per_minute": (round(len(durations) / elapsed_minutes, 3)
+                                 if elapsed_minutes else None),
+            "l1_items": len(by_layer["L1"]),
+            "l1_minutes": _minutes(by_layer["L1"]),
+            "l2_items": len(by_layer["L2"]),
+            "l2_minutes": _minutes(by_layer["L2"]),
+            "l3_items": len(by_layer["L3"]),
+            "l3_minutes": _minutes(by_layer["L3"]),
         }
