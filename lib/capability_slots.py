@@ -35,8 +35,11 @@ Invariants:
 
 from __future__ import annotations
 
+import json
 import os
 import re
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -594,6 +597,604 @@ def plan_degradation(slots: list, profile: str, requirements: dict) -> list[dict
     return results
 
 
+# ---------------------------------------------------------------------------
+# Cost comparison and dual-tier binding (MOD-08)
+# ---------------------------------------------------------------------------
+#
+# Two tiers, one comparison:
+#
+# * **draft** -- among candidates that are usable and satisfy the requirements
+#   (capabilities *and* output resolutions, MOD-08/A2), choose the lowest
+#   estimated cash cost. Ties keep the profile's declared chain order.
+# * **delivery** -- never auto-selected. The plan lists every candidate with
+#   its quality/verification, cost estimate (or "unknown"), quota and rights,
+#   and requires an explicit operator confirmation before a switch is recorded.
+#   Nothing forces the most expensive (premium) candidate.
+#
+# Prices provider fragments cannot carry (the capability-catalog schema has
+# ``additionalProperties: false``) live in ``_MODEL_COSTS`` below with their
+# evidence. A binding may always override with ``cost_cny_per_s`` /
+# ``cost_cny_per_run`` / ``cost_unknown`` / ``quota``.
+#
+# M0: nothing here calls a provider. Unknown costs are reported as unknown --
+# never guessed as 0, because "free" that is not free is exactly the cost bug
+# this layer exists to prevent.
+
+DRAFT_TIER = "draft"
+DELIVERY_TIER = "delivery"
+_TIERS = (DRAFT_TIER, DELIVERY_TIER)
+
+_RESOLUTION_RANK = {"480p": 1, "720p": 2, "1080p": 3, "1440p": 4, "4k": 5}
+
+#: Verification status -> rough quality weight (0..1). Used only to order the
+#: delivery shortlist; it is not a quality promise.
+_VERIFICATION_QUALITY = {
+    "VERIFIED": 1.0,
+    "MOCKED": 0.6,
+    "UNVERIFIED": 0.4,
+    "BLOCKED": 0.0,
+}
+
+#: Known cash prices by catalog model. ``cash_cny_per_s`` is multiplied by
+#: ``duration_s``; ``cash_cny_per_run`` is a flat per-generation price.
+_MODEL_COSTS: dict[str, dict[str, Any]] = {
+    "molica/wan30video": {
+        "cash_cny_per_run": 0.0,
+        "basis": "prepaid membership credits: 105 credits per 5s 480p run, "
+                 "measured in the account ledger 2026-11-07 "
+                 "(tools/video/molica_video.py _MEASURED_MIN_CREDITS); no cash spend",
+        "quota": {"unit": "credits", "per_run": 105, "source": "account ledger 2026-11-07"},
+    },
+    "holopix/seedance-2-0": {
+        "cash_cny_per_run": 0.0,
+        "basis": "membership compute points; no cash spend (account exhausted 2026-11)",
+        "quota": {"unit": "compute_points", "per_run": None, "source": "holopix membership"},
+    },
+    "holopix/seedance-mini": {
+        "cash_cny_per_run": 0.0,
+        "basis": "membership compute points; no cash spend",
+        "quota": {"unit": "compute_points", "per_run": None, "source": "holopix membership"},
+    },
+    "zhipu/cogvideox-flash": {
+        "cash_cny_per_run": 0.0,
+        "basis": "published free tier: ¥0 per generation (tools/video/zhipu_video.py _MODEL_PRICE_RMB)",
+        "quota": {"unit": "generations", "per_run": None, "source": "free tier, no total cap"},
+    },
+    "zhipu/cogvideox-2": {
+        "cash_cny_per_run": 0.5,
+        "basis": "published list price ¥0.5 per generation (tools/video/zhipu_video.py)",
+    },
+    "zhipu/cogvideox-3": {
+        "cash_cny_per_run": 1.0,
+        "basis": "published list price ¥1.0 per generation (tools/video/zhipu_video.py)",
+    },
+    "agnes/agnes-video-2.5-flash": {
+        "cash_cny_per_s": 0.0,
+        "basis": "free trial: $0/second while the trial runs (tools/video/agnes_video.py); "
+                 "price is volatile and must be re-measured before delivery",
+    },
+    "dashscope/wan3.0-video": {
+        "cash_cny_per_s": 0.30,
+        "basis": "Bailian price sheet 2026-11-11, 480P tier (requirements §13.1)",
+    },
+}
+
+
+class TierApprovalRequired(CapabilitySlotsError):
+    """A tier switch was requested without explicit operator confirmation."""
+
+
+def _unknown_cost(why: str) -> dict[str, Any]:
+    return {
+        "estimated_cny": None,
+        "cost_known": False,
+        "cost_basis": f"unknown: {why}",
+        "cost_currency": "CNY",
+        "quota": None,
+    }
+
+
+def _candidate_cost(candidate: dict, duration_s: float) -> dict[str, Any]:
+    """Estimate one binding's cash cost for a single clip/run.
+
+    Returns ``estimated_cny`` (float or None), ``cost_known``, a human
+    ``cost_basis`` and the quota declaration. Unknown stays unknown.
+    """
+    seconds = max(float(duration_s or 0.0), 0.0)
+    quota = candidate.get("quota")
+    if candidate.get("cost_cny_per_s") is not None:
+        rate = float(candidate["cost_cny_per_s"])
+        return {
+            "estimated_cny": round(rate * seconds, 4),
+            "cost_known": True,
+            "cost_basis": f"{rate:g} CNY/output-second x {seconds:g}s (binding declaration)",
+            "cost_currency": "CNY",
+            "quota": quota,
+        }
+    if candidate.get("cost_cny_per_run") is not None:
+        value = float(candidate["cost_cny_per_run"])
+        return {
+            "estimated_cny": round(value, 4),
+            "cost_known": True,
+            "cost_basis": f"{value:g} CNY/run (binding declaration)",
+            "cost_currency": "CNY",
+            "quota": quota,
+        }
+    if candidate.get("cost_unknown"):
+        return _unknown_cost("binding marks the price as unknown")
+
+    spec = _MODEL_COSTS.get(str(candidate.get("catalog_model") or ""))
+    if isinstance(spec, dict):
+        basis = str(spec.get("basis") or "provider price")
+        if spec.get("cash_cny_per_s") is not None:
+            rate = float(spec["cash_cny_per_s"])
+            return {
+                "estimated_cny": round(rate * seconds, 4),
+                "cost_known": True,
+                "cost_basis": f"{rate:g} CNY/output-second x {seconds:g}s ({basis})",
+                "cost_currency": "CNY",
+                "quota": quota or spec.get("quota"),
+            }
+        value = float(spec.get("cash_cny_per_run") or 0.0)
+        return {
+            "estimated_cny": round(value, 4),
+            "cost_known": True,
+            "cost_basis": f"{value:g} CNY/run ({basis})",
+            "cost_currency": "CNY",
+            "quota": quota or spec.get("quota"),
+        }
+
+    tier = str(candidate.get("tier") or "")
+    if tier in ("free", "credit", "local"):
+        return {
+            "estimated_cny": 0.0,
+            "cost_known": True,
+            "cost_basis": f"declared '{tier}' tier: no cash cost (price not published)",
+            "cost_currency": "CNY",
+            "quota": quota,
+        }
+    return _unknown_cost(
+        "no binding price, no known model price, and the provider publishes no tariff"
+    )
+
+
+def _max_resolution(caps: dict) -> str:
+    resolutions = caps.get("output_resolutions")
+    if not isinstance(resolutions, list) or not resolutions:
+        return "unknown"
+    ranked = [r for r in resolutions if r in _RESOLUTION_RANK]
+    if not ranked:
+        return str(sorted(map(str, resolutions))[-1])
+    return max(ranked, key=lambda r: _RESOLUTION_RANK[r])
+
+
+def _quality_score(row: dict) -> float:
+    verification = str(row.get("verification_status") or _UNVERIFIED)
+    base = _VERIFICATION_QUALITY.get(verification, 0.35)
+    rank = _RESOLUTION_RANK.get(str(row.get("max_resolution") or ""), 0)
+    return round(min(1.0, base * 0.7 + min(rank, 3) / 3.0 * 0.3), 3)
+
+
+def _comparison_rows(
+    slot: str,
+    profile_data: dict,
+    *,
+    operation: Optional[str],
+    duration_s: float,
+    requirements: dict,
+) -> list[dict]:
+    """One comparison row per declared candidate, in chain order."""
+    account = load_account_state()
+    rows: list[dict] = []
+    for index, candidate in enumerate(_slot_chain(profile_data, slot)):
+        tool = str(candidate.get("tool") or "")
+        usable, code, detail = _candidate_usable(candidate, account, operation)
+        candidate_operation = _candidate_operation(candidate, operation)
+        caps, entry = _binding_capabilities(candidate, candidate_operation)
+        unmet = _unmet_requirements(caps, requirements)
+        cost = _candidate_cost(candidate, duration_s)
+        max_res = _max_resolution(caps)
+        rows.append(
+            {
+                "slot": slot,
+                "tool": tool,
+                "provider": candidate.get("provider"),
+                "model": candidate.get("catalog_model"),
+                "tier": candidate.get("tier"),
+                "chain_index": index,
+                "usable": usable,
+                "rejection": None if usable else {
+                    "code": code,
+                    "detail": detail,
+                },
+                "meets_requirements": not _unmet_list(unmet),
+                "unmet": _unmet_list(unmet),
+                "estimated_cny": cost["estimated_cny"],
+                "cost_known": cost["cost_known"],
+                "cost_basis": cost["cost_basis"],
+                "cost_currency": cost["cost_currency"],
+                "quota": cost.get("quota"),
+                "rights": (entry or {}).get("commercial_rights")
+                or candidate.get("commercial_rights")
+                or "unknown",
+                "verification_status": (entry or {}).get("verification_status", _UNVERIFIED),
+                "max_resolution": max_res,
+                "output_resolutions": caps.get("output_resolutions", "unknown"),
+            }
+        )
+    return rows
+
+
+def cost_comparison(
+    slot: str,
+    profile: str,
+    *,
+    operation: Optional[str] = None,
+    duration_s: float = 5.0,
+    requirements: Optional[dict] = None,
+) -> list[dict]:
+    """Return the documented comparison basis for every candidate in ``slot``.
+
+    Each row carries the cost estimate (or an explicit ``unknown``), quota,
+    rights, verification status and whether it meets the requirements, so
+    doctor/plan output can show *why* a binding was chosen (MOD-08).
+    """
+    if not profile:
+        profile = active_profile()
+    profile_data = load_profile(profile)
+    slot_def = slot_definition(slot)
+    reqs = _merge_requirements(_slot_default_requirements(slot_def), requirements or {})
+    op = operation or _first_required_operation(reqs)
+    return _comparison_rows(
+        slot, profile_data, operation=op, duration_s=duration_s, requirements=reqs
+    )
+
+
+def _delivery_resolution(profile_data: dict) -> Optional[str]:
+    """Derive a delivery resolution tier from ``delivery.target_resolution``."""
+    delivery = profile_data.get("delivery") or {}
+    if not isinstance(delivery, dict):
+        return None
+    target = str(delivery.get("target_resolution") or "")
+    match = re.search(r"(\d{3,4})\s*[x×]\s*(\d{3,4})", target)
+    if not match:
+        return None
+    short_side = min(int(match.group(1)), int(match.group(2)))
+    if short_side >= 2160:
+        return "4k"
+    if short_side >= 1080:
+        return "1080p"
+    if short_side >= 720:
+        return "720p"
+    if short_side >= 480:
+        return "480p"
+    return None
+
+
+def _draft_order(row: dict) -> tuple:
+    """Cheapest first; unknown prices cannot be proven cheapest, so go last."""
+    return (
+        0 if row["cost_known"] else 1,
+        float(row["estimated_cny"]) if row["cost_known"] else 0.0,
+        row["chain_index"],
+    )
+
+
+def _delivery_order(row: dict) -> tuple:
+    """Highest quality first, then cheapest known cost, then chain order."""
+    return (
+        -_quality_score(row),
+        0 if row["cost_known"] else 1,
+        float(row["estimated_cny"]) if row["cost_known"] else 0.0,
+        row["chain_index"],
+    )
+
+
+def _tier_choice(row: Optional[dict]) -> dict:
+    if row is None:
+        return {}
+    return {
+        "tool": row["tool"],
+        "provider": row["provider"],
+        "model": row["model"],
+        "tier": row["tier"],
+        "estimated_cny": row["estimated_cny"],
+        "cost_known": row["cost_known"],
+        "cost_basis": row["cost_basis"],
+        "quota": row["quota"],
+        "rights": row["rights"],
+        "verification_status": row["verification_status"],
+        "max_resolution": row["max_resolution"],
+        "quality_score": _quality_score(row),
+    }
+
+
+def plan_tiers(
+    slot: str,
+    profile: str,
+    *,
+    operation: Optional[str] = None,
+    duration_s: float = 5.0,
+    requirements: Optional[dict] = None,
+    delivery_requirements: Optional[dict] = None,
+) -> dict:
+    """Plan the draft and delivery tiers for one slot (MOD-08).
+
+    Draft picks the lowest estimated cash cost among usable candidates that
+    satisfy the requirements. Delivery never auto-selects: it returns the
+    comparison and ``PENDING_APPROVAL`` until :func:`confirm_tier` records an
+    operator decision. Lower-resolution delivery falls back to the profile's
+    predeclared upscale plan, or BLOCKED when none is declared.
+    """
+    if not profile:
+        profile = active_profile()
+    profile_data = load_profile(profile)
+    slot_def = slot_definition(slot)
+
+    draft_reqs = _merge_requirements(_slot_default_requirements(slot_def), requirements or {})
+    op = operation or _first_required_operation(draft_reqs)
+    rows = _comparison_rows(
+        slot, profile_data, operation=op, duration_s=duration_s, requirements=draft_reqs
+    )
+    eligible = [row for row in rows if row["usable"] and row["meets_requirements"]]
+    eligible.sort(key=_draft_order)
+    draft_choice = eligible[0] if eligible else None
+
+    draft = {
+        "tier": DRAFT_TIER,
+        "requirements": draft_reqs,
+        "status": "OK" if draft_choice else "BLOCKED",
+        "approval_required": False,
+        "candidates": eligible,
+        "reason": "" if draft_choice else (
+            "no usable candidate satisfies the draft requirements"
+        ),
+    }
+    draft.update(_tier_choice(draft_choice))
+
+    delivery_reqs = _merge_requirements(draft_reqs, delivery_requirements or {})
+    target = _delivery_resolution(profile_data)
+    if target and not (delivery_requirements or {}).get("output_resolutions"):
+        delivery_reqs["output_resolutions"] = sorted(
+            set(list(delivery_reqs.get("output_resolutions") or []) + [target]),
+            key=lambda r: _RESOLUTION_RANK.get(r, 0),
+        )
+    delivery_rows = _comparison_rows(
+        slot, profile_data, operation=op, duration_s=duration_s, requirements=delivery_reqs
+    )
+    native = [row for row in delivery_rows if row["usable"] and row["meets_requirements"]]
+    native.sort(key=_delivery_order)
+
+    delivery_data = profile_data.get("delivery") or {}
+    if not isinstance(delivery_data, dict):
+        delivery_data = {}
+    upscale_plan_id = delivery_data.get("degradation_id")
+
+    upscale_required = False
+    delivery_candidates = native
+    delivery_status = "PENDING_APPROVAL" if native else "BLOCKED"
+    delivery_reason = (
+        f"delivery requirements include {target or 'the declared target resolution'}; "
+        "operator confirmation required (quality / cost / quota / rights)"
+    )
+    if not native:
+        fallback = [row for row in rows if row["usable"] and row["meets_requirements"]]
+        fallback.sort(key=_delivery_order)
+        if fallback and upscale_plan_id:
+            upscale_required = True
+            delivery_candidates = fallback
+            delivery_status = "PENDING_APPROVAL"
+            delivery_reason = (
+                f"no candidate renders {target or 'the delivery resolution'} natively; "
+                f"declared upscale plan {upscale_plan_id!r} required (DEGRADED)"
+            )
+        elif fallback:
+            delivery_candidates = fallback
+            delivery_status = "BLOCKED"
+            delivery_reason = (
+                f"no candidate renders {target or 'the delivery resolution'} natively and "
+                "no predeclared upscale plan exists"
+            )
+        else:
+            delivery_candidates = []
+            delivery_reason = "no usable candidate satisfies the slot requirements"
+
+    suggested = delivery_candidates[0] if delivery_candidates else None
+    delivery = {
+        "tier": DELIVERY_TIER,
+        "requirements": delivery_reqs,
+        "status": delivery_status,
+        "selected": None,
+        "suggested": _tier_choice(suggested) or None,
+        "candidates": delivery_candidates,
+        "approval_required": True,
+        "requires_confirmation": True,
+        "upscale_required": upscale_required,
+        "upscale_plan_id": upscale_plan_id if upscale_required else None,
+        "upscale_cost": (
+            _unknown_cost(
+                "the local upscale stage declares no price; compute cost is not "
+                "estimated in M0 (DEL-01/F34)"
+            )
+            if upscale_required
+            else None
+        ),
+        "comparison_basis": [
+            "quality (verification status + max declared resolution)",
+            "estimated cash cost (unknown is never treated as free)",
+            "quota (credits / compute points per run)",
+            "commercial rights (UNKNOWN blocks delivery)",
+        ],
+        "reason": delivery_reason,
+    }
+
+    return {
+        "slot": slot,
+        "profile": profile,
+        "operation": op,
+        "duration_s": float(duration_s),
+        "currency": "CNY",
+        "draft": draft,
+        "delivery": delivery,
+        "approval_required": True,
+        "cost_comparison": rows,
+    }
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _decision_log_path(path: Optional[str] = None) -> Path:
+    return Path(path) if path else bindings_dir() / "decision_log.json"
+
+
+def load_tier_approvals(decision_log_path: Optional[str] = None) -> list[dict]:
+    """Return recorded draft/delivery tier switches from the bindings log."""
+    path = _decision_log_path(decision_log_path)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    decisions = data.get("decisions") if isinstance(data, dict) else None
+    if not isinstance(decisions, list):
+        return []
+    return [
+        entry
+        for entry in decisions
+        if isinstance(entry, dict)
+        and str(entry.get("subject") or "").startswith(
+            (f"{DRAFT_TIER}_tier:", f"{DELIVERY_TIER}_tier:")
+        )
+    ]
+
+
+def confirm_tier(
+    slot: str,
+    profile: str,
+    tier: str,
+    *,
+    confirmed: bool,
+    tool: Optional[str] = None,
+    approved_by: str = "owner",
+    reason: str = "",
+    duration_s: float = 5.0,
+    operation: Optional[str] = None,
+    requirements: Optional[dict] = None,
+    delivery_requirements: Optional[dict] = None,
+    decision_log_path: Optional[str] = None,
+) -> dict:
+    """Record an explicit tier switch in the bindings decision log.
+
+    ``confirmed`` must be ``True``; a missing confirmation raises
+    :class:`TierApprovalRequired` and writes nothing. The record is appended
+    (never mutated) so every switch -- including switching back -- stays
+    auditable (MOD-08).
+    """
+    if tier not in _TIERS:
+        raise ValueError(f"unknown tier {tier!r}; expected one of {_TIERS}")
+    plan = plan_tiers(
+        slot,
+        profile,
+        operation=operation,
+        duration_s=duration_s,
+        requirements=requirements,
+        delivery_requirements=delivery_requirements,
+    )
+    section = plan[tier]
+    if not confirmed:
+        raise TierApprovalRequired(
+            f"{tier} tier selection for slot {slot!r} in profile {profile!r} "
+            "needs explicit operator confirmation"
+        )
+    if section.get("status") == "BLOCKED":
+        raise CapabilitySlotsError(
+            f"cannot confirm {tier} tier for slot {slot!r}: {section.get('reason')}"
+        )
+
+    candidates = list(section.get("candidates") or [])
+    if not candidates:
+        raise CapabilitySlotsError(
+            f"no eligible {tier} candidate for slot {slot!r} in profile {profile!r}"
+        )
+    default_tool = (section.get("suggested") or section).get("tool")
+    chosen_tool = tool or default_tool
+    chosen = next((row for row in candidates if row["tool"] == chosen_tool), None)
+    if chosen is None:
+        raise CapabilitySlotsError(
+            f"{chosen_tool!r} is not an eligible {tier} candidate for slot {slot!r}; "
+            f"eligible: {', '.join(str(row['tool']) for row in candidates)}"
+        )
+
+    options: list[dict] = []
+    for row in candidates:
+        options.append(
+            {
+                "option_id": str(row["tool"]),
+                "label": f"{row['provider'] or 'unknown'}/{row['model'] or row['tool']}",
+                "score": _quality_score(row),
+                "reason": (
+                    f"{row['cost_basis']}; quota={row['quota'] or 'unknown'}; "
+                    f"rights={row['rights']}"
+                ),
+                "rejected_because": "" if row["tool"] == chosen_tool else "not selected",
+            }
+        )
+
+    decision_id = f"dec_tier_{uuid.uuid4().hex[:12]}"
+    entry = {
+        "decision_id": decision_id,
+        "stage": "assembly",
+        "category": "budget_tradeoff",
+        "subject": f"{tier}_tier:{slot}",
+        "options_considered": options,
+        "selected": chosen_tool,
+        "chosen": chosen_tool,
+        "reason": reason or (
+            f"{tier} tier: {chosen['cost_basis']}; rights={chosen['rights']}"
+        ),
+        "user_visible": True,
+        "user_approved": True,
+        "estimated_cny": chosen["estimated_cny"],
+        "cost_known": chosen["cost_known"],
+        "upscale_required": bool(section.get("upscale_required")),
+        "profile": plan["profile"],
+        "decided_at": _now_iso(),
+        "decided_by": approved_by,
+    }
+
+    path = _decision_log_path(decision_log_path)
+    data: dict[str, Any] = {"version": "1.0", "decisions": []}
+    if path.exists():
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+        except ValueError as exc:
+            raise CapabilitySlotsError(f"{path} is not valid JSON: {exc}") from exc
+        if isinstance(loaded, dict):
+            data = loaded
+    data.setdefault("version", "1.0")
+    decisions = data.get("decisions")
+    if not isinstance(decisions, list):
+        decisions = []
+    decisions.append(entry)
+    data["decisions"] = decisions
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    return {
+        "decision_id": decision_id,
+        "slot": slot,
+        "profile": plan["profile"],
+        "tier": tier,
+        "tool": chosen_tool,
+        "estimated_cny": chosen["estimated_cny"],
+        "cost_known": chosen["cost_known"],
+        "cost_basis": chosen["cost_basis"],
+        "upscale_required": bool(section.get("upscale_required")),
+        "decision_log": str(path),
+    }
+
+
 def doctor(profile: str) -> dict:
     """Health-check a profile: GREEN / DEGRADED / BLOCKED with reasons.
 
@@ -626,6 +1227,7 @@ def doctor(profile: str) -> dict:
                  "message": str(exc), "tool": None}
             ],
             "degradation": [],
+            "cost_comparison": [],
         }
 
     slots = load_slots()
@@ -638,6 +1240,7 @@ def doctor(profile: str) -> dict:
                  "message": f"no slots.yaml under {bindings_dir()}", "tool": None}
             ],
             "degradation": [],
+            "cost_comparison": [],
         }
 
     account = load_account_state()
@@ -820,6 +1423,26 @@ def doctor(profile: str) -> dict:
             slot="video_primary",
         )
 
+    # MOD-08: doctor also reports the draft/delivery comparison basis --
+    # estimates, quota, rights and explicit "unknown" prices -- without letting
+    # cost information change the three-state health verdict.
+    cost_rows: list[dict] = []
+    for slot, slot_def in slots.items():
+        if not isinstance(slot_def, dict) or not slot_def.get("required"):
+            continue
+        if slot_def.get("capability_family") != "video_generation":
+            continue
+        default_reqs = _slot_default_requirements(slot_def)
+        cost_rows.extend(
+            _comparison_rows(
+                slot,
+                profile_data,
+                operation=_first_required_operation(default_reqs),
+                duration_s=5.0,
+                requirements=default_reqs,
+            )
+        )
+
     if any(r["severity"] == "blocker" for r in reasons):
         status = "BLOCKED"
     elif any(r["severity"] in ("warning", "degraded") for r in reasons):
@@ -832,6 +1455,7 @@ def doctor(profile: str) -> dict:
         "profile": profile,
         "reasons": _dedupe_reasons(reasons),
         "degradation": degradation,
+        "cost_comparison": cost_rows,
     }
 
 

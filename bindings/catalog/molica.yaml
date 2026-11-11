@@ -1,0 +1,77 @@
+# Molica provider fragment (MOD-07).
+#
+# Aggregated by lib/capability_slots.load_catalog(); this file never edits
+# bindings/capability_catalog.yaml. The primary molica/wan30video entry lives
+# in the base catalog; this fragment declares the other model keys the
+# membership exposes so routing can see them.
+#
+# Evidence: tools/video/molica_video.py KNOWN_MODEL_KEYS snapshot 2026-11-06.
+# Molica publishes no tariff; capability values left "unknown" are deliberate
+# (unknown != supported, MOD-02). The live catalog cache
+# (tools/_molica/catalog.json) is authoritative once refreshed.
+version: "1.0"
+entries:
+  - model: molica/wan30prime
+    operation: text_to_video
+    native_audio: "unknown"
+    lipsync_from_dialogue: "unknown"
+    reference_images_max: 0
+    reference_video: "unknown"
+    reference_audio: "unknown"
+    multi_shot: "unknown"
+    cross_shot_identity: "unknown"
+    aspect_ratios: ["9:16", "16:9", "1:1"]
+    seed_control: "unknown"
+    first_frame_conditioning: "unknown"
+    source: "tools/video/molica_video.py KNOWN_MODEL_KEYS (wan30prime) snapshot 2026-11-06"
+    verified_at: null
+    verification_status: UNVERIFIED
+    commercial_rights: "membership ToS unverified (R25); member's own account"
+  - model: molica/wan30prime
+    operation: image_to_video
+    native_audio: "unknown"
+    lipsync_from_dialogue: "unknown"
+    reference_images_max: 1
+    reference_video: "unknown"
+    reference_audio: "unknown"
+    multi_shot: "unknown"
+    cross_shot_identity: "unknown"
+    aspect_ratios: ["9:16", "16:9", "1:1"]
+    seed_control: "unknown"
+    first_frame_conditioning: "unknown"
+    source: "tools/video/molica_video.py KNOWN_MODEL_KEYS (wan30prime) snapshot 2026-11-06"
+    verified_at: null
+    verification_status: UNVERIFIED
+    commercial_rights: "membership ToS unverified (R25); member's own account"
+  - model: molica/seedance25
+    operation: text_to_video
+    native_audio: "unknown"
+    lipsync_from_dialogue: "unknown"
+    reference_images_max: 0
+    reference_video: "unknown"
+    reference_audio: "unknown"
+    multi_shot: "unknown"
+    cross_shot_identity: "unknown"
+    aspect_ratios: ["9:16", "16:9", "1:1"]
+    seed_control: "unknown"
+    first_frame_conditioning: "unknown"
+    source: "tools/video/molica_video.py KNOWN_MODEL_KEYS (seedance25) snapshot 2026-11-06"
+    verified_at: null
+    verification_status: UNVERIFIED
+    commercial_rights: "membership ToS unverified (R25); member's own account"
+  - model: molica/seedance25
+    operation: image_to_video
+    native_audio: "unknown"
+    lipsync_from_dialogue: "unknown"
+    reference_images_max: 1
+    reference_video: "unknown"
+    reference_audio: "unknown"
+    multi_shot: "unknown"
+    cross_shot_identity: "unknown"
+    aspect_ratios: ["9:16", "16:9", "1:1"]
+    seed_control: "unknown"
+    first_frame_conditioning: "unknown"
+    source: "tools/video/molica_video.py KNOWN_MODEL_KEYS (seedance25) snapshot 2026-11-06"
+    verified_at: null
+    verification_status: UNVERIFIED
+    commercial_rights: "membership ToS unverified (R25); member's own account"

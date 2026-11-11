@@ -1,0 +1,89 @@
+# Zhipu (智谱 BigModel) provider fragment (MOD-07).
+#
+# Aggregated by lib/capability_slots.load_catalog(); this file never edits
+# bindings/capability_catalog.yaml. Zhipu is already registered as
+# tools/video/zhipu_video.py; MOD-07 makes its CogVideoX capability
+# declaration visible to the catalog and the video selector.
+#
+# Evidence: tools/video/zhipu_video.py model/size contract snapshot 2026-11-06.
+# The adapter maps every nominal tier (480p/720p/1080p) to 1920x1080 because
+# the endpoint has no 16:9 size below 1080p; the nominal tiers are therefore
+# declared as supported, with the concrete size recorded in the source note.
+version: "1.0"
+entries:
+  - model: zhipu/cogvideox-flash
+    operation: text_to_video
+    native_audio: false
+    lipsync_from_dialogue: false
+    reference_images_max: 0
+    reference_video: false
+    reference_audio: false
+    multi_shot: "unknown"
+    cross_shot_identity: "unknown"
+    aspect_ratios: ["16:9", "9:16", "1:1"]
+    min_duration_s: 5
+    max_duration_s: 10
+    output_resolutions: ["480p", "720p", "1080p"]
+    seed_control: false
+    first_frame_conditioning: false
+    source: "tools/video/zhipu_video.py free-tier contract; nominal tiers render at 1920x1080"
+    verified_at: null
+    verification_status: UNVERIFIED
+    commercial_rights: "BigModel ToS; flash is the free tier, commercial terms re-checked in M1"
+  - model: zhipu/cogvideox-flash
+    operation: image_to_video
+    native_audio: false
+    lipsync_from_dialogue: false
+    reference_images_max: 1
+    reference_video: false
+    reference_audio: false
+    multi_shot: "unknown"
+    cross_shot_identity: "unknown"
+    aspect_ratios: ["16:9", "9:16", "1:1"]
+    min_duration_s: 5
+    max_duration_s: 10
+    output_resolutions: ["480p", "720p", "1080p"]
+    seed_control: false
+    first_frame_conditioning: true
+    source: "tools/video/zhipu_video.py supports.image_to_video; nominal tiers render at 1920x1080"
+    verified_at: null
+    verification_status: UNVERIFIED
+    commercial_rights: "BigModel ToS; flash is the free tier, commercial terms re-checked in M1"
+  - model: zhipu/cogvideox-3
+    operation: text_to_video
+    native_audio: false
+    lipsync_from_dialogue: false
+    reference_images_max: 0
+    reference_video: false
+    reference_audio: false
+    multi_shot: "unknown"
+    cross_shot_identity: "unknown"
+    aspect_ratios: ["16:9", "9:16", "1:1"]
+    min_duration_s: 5
+    max_duration_s: 10
+    output_resolutions: ["480p", "720p", "1080p"]
+    seed_control: false
+    first_frame_conditioning: false
+    source: "tools/video/zhipu_video.py paid CogVideoX contract; nominal tiers render at 1920x1080"
+    verified_at: null
+    verification_status: UNVERIFIED
+    commercial_rights: "BigModel ToS; commercial terms re-checked in M1 before paid delivery"
+  - model: zhipu/cogvideox-3
+    operation: image_to_video
+    native_audio: false
+    lipsync_from_dialogue: false
+    reference_images_max: 1
+    reference_video: false
+    reference_audio: false
+    multi_shot: "unknown"
+    cross_shot_identity: "unknown"
+    aspect_ratios: ["16:9", "9:16", "1:1"]
+    min_duration_s: 5
+    max_duration_s: 10
+    output_resolutions: ["480p", "720p", "1080p"]
+    seed_control: false
+    first_frame_conditioning: true
+    source: "tools/video/zhipu_video.py supports.image_to_video (paid CogVideoX)"
+    verified_at: null
+    verification_status: UNVERIFIED
+    commercial_rights: "BigModel ToS; commercial terms re-checked in M1 before paid delivery"

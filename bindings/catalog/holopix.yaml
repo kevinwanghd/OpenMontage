@@ -1,0 +1,69 @@
+# Holopix provider fragment (MOD-07).
+#
+# Aggregated by lib/capability_slots.load_catalog(); this file never edits
+# bindings/capability_catalog.yaml. The primary holopix/seedance-2-0 entry
+# lives in the base catalog; this fragment declares the provider's other
+# model keys so the selector/catalog surface is complete.
+#
+# Evidence: tools/video/holopix_video.py KNOWN_MODEL_KEYS + supports snapshot
+# 2026-11-06. Holopix exposes no public API; every figure below is a
+# declaration from the tool's own contract, not a measured capability.
+version: "1.0"
+entries:
+  - model: holopix/seedance-mini
+    operation: text_to_video
+    native_audio: true
+    lipsync_from_dialogue: "unknown"
+    reference_images_max: 0
+    reference_video: false
+    reference_audio: false
+    multi_shot: "unknown"
+    cross_shot_identity: "unknown"
+    aspect_ratios: ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"]
+    min_duration_s: 5
+    max_duration_s: 10
+    output_resolutions: ["480p", "720p"]
+    seed_control: "unknown"
+    first_frame_conditioning: false
+    source: "tools/video/holopix_video.py KNOWN_MODEL_KEYS (seedance-mini) snapshot 2026-11-06"
+    verified_at: null
+    verification_status: UNVERIFIED
+    commercial_rights: "membership ToS unverified (R25); member's own account"
+  - model: holopix/seedance-mini
+    operation: image_to_video
+    native_audio: true
+    lipsync_from_dialogue: "unknown"
+    reference_images_max: 1
+    reference_video: false
+    reference_audio: false
+    multi_shot: "unknown"
+    cross_shot_identity: "unknown"
+    aspect_ratios: ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"]
+    min_duration_s: 5
+    max_duration_s: 10
+    output_resolutions: ["480p", "720p"]
+    seed_control: "unknown"
+    first_frame_conditioning: true
+    source: "tools/video/holopix_video.py supports.image_to_video (model key seedance-mini)"
+    verified_at: null
+    verification_status: UNVERIFIED
+    commercial_rights: "membership ToS unverified (R25); member's own account"
+  - model: holopix/seedance-mini
+    operation: first_last_frame_to_video
+    native_audio: true
+    lipsync_from_dialogue: "unknown"
+    reference_images_max: 2
+    reference_video: false
+    reference_audio: false
+    multi_shot: "unknown"
+    cross_shot_identity: "unknown"
+    aspect_ratios: ["16:9", "9:16", "1:1"]
+    min_duration_s: 5
+    max_duration_s: 10
+    output_resolutions: ["480p", "720p"]
+    seed_control: "unknown"
+    first_frame_conditioning: true
+    source: "tools/video/holopix_video.py supports.first_last_frame_to_video (model key seedance-mini)"
+    verified_at: null
+    verification_status: UNVERIFIED
+    commercial_rights: "membership ToS unverified (R25); member's own account"
