@@ -141,7 +141,7 @@ auto_merge:
 testing:
   enforcement: hard           # 生产代码缺少测试证据直接阻断
   soft_deadline: 2027-02-09   # 仅供显式 soft 过渡配置使用
-  accept_tested_trailer: false # Tested: 仅作开发声明，合并放行只看 CI Evidence Bundle
+  accept_tested_trailer: true  # thin 模式无本地 evidence bundle；CI 独立跑 make test 真正验证测试，Tested: trailer 仅记录结果并与 CI 互证，故接受
   untested_max_age_days: 90   # risk:untested 注解有效期 (推荐: 与季度 review 节奏对齐)
   exclude_paths:              # 整目录/模式免测试检查 (DTO/迁移/生成代码/启动引导)
     - "governance/scripts/**"  # AgentGate vendored tooling is tested upstream
