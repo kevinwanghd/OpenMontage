@@ -6,6 +6,11 @@ setup(
     description="AI-Orchestrated Video Production Platform",
     packages=find_packages(),
     python_requires=">=3.10",
+    entry_points={
+        "console_scripts": [
+            "om = shortdrama.cli:main",
+        ],
+    },
     install_requires=[
         "pyyaml>=6.0",
         "pydantic>=2.0",
