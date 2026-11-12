@@ -78,12 +78,24 @@ def _blocked(address) -> NetworkCallInTestError:
     )
 
 
+_PROXY_ENV_VARS = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY",
+                   "http_proxy", "https_proxy", "all_proxy")
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _block_network():
     """Refuse non-loopback sockets for the entire session."""
     if _network_allowed():
         yield
         return
+
+    # A loopback proxy (e.g. 127.0.0.1:8890) tunnels requests straight past
+    # the socket-layer guard: connect() sees a loopback target while the
+    # request actually reaches the public endpoint. Strip proxy settings so
+    # libraries connect directly and hit the wall above.
+    saved_env = {name: os.environ.get(name) for name in _PROXY_ENV_VARS}
+    for name in _PROXY_ENV_VARS:
+        os.environ.pop(name, None)
 
     def guarded_connect(self, address, *args, **kwargs):
         if not _is_loopback(address):
@@ -109,6 +121,11 @@ def _block_network():
         socket.socket.connect = _real_connect
         socket.socket.connect_ex = _real_connect_ex
         socket.create_connection = _real_create_connection
+        for name, value in saved_env.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
 
 
 def pytest_configure(config):
