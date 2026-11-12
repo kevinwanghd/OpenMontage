@@ -77,6 +77,17 @@ bindings:
         tier: local
         operations: [subtitle]
 
+  text_llm:
+    chain:
+      # Free quota on the DashScope endpoint is the primary: marginal cost is
+      # zero and "stop when exhausted" rules out paid spill-over. No fallback
+      # is declared on purpose -- a missing key or exhausted quota must surface
+      # as BLOCKED/UNAVAILABLE, not silently reroute to a paid text model.
+      - tool: bailian_chat
+        provider: bailian
+        tier: free
+        operations: [translate, classify, summarize, extract, vision]
+
   upscale:
     chain:
       - tool: upscale
