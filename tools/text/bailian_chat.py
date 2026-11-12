@@ -17,6 +17,8 @@ translation.
 
 from __future__ import annotations
 
+# risk:untested reason:"routing and payload behaviour are covered by tests/tools/test_bailian_chat.py; thin static gate cannot link that test mapping" owner:@kevinwanghd reviewed:2026-11-12
+
 import os
 import time
 from typing import Any
@@ -211,6 +213,7 @@ class BailianChat(BaseTool):
             response = self._post_with_retry(requests, payload, api_key, timeout)
             response.raise_for_status()
             data = response.json()
+        # risk:swallowed-exception reason:"every transport failure becomes ToolResult(success=False, error=...), surfaced to the caller and never silently ignored" owner:@kevinwanghd reviewed:2026-11-12
         except Exception as e:  # noqa: BLE001 - report every transport failure
             return ToolResult(
                 success=False,

@@ -178,6 +178,19 @@ def test_character_items_read_episode_character_cards(tmp_path: Path):
     assert "black hair" in items[0].inputs["prompt"]
 
 
+def test_character_items_read_project_level_series_roster(tmp_path: Path):
+    card_dir = content.project_artifacts_dir(tmp_path, "p") / "characters"
+    card_dir.mkdir(parents=True)
+    (card_dir / "ch_lin.json").write_text(json.dumps(_card()), encoding="utf-8")
+
+    items = build_work_items(
+        "character_cast", "image_character_key", {},
+        projects_dir=tmp_path, project="p", episode="ep01",
+    )
+
+    assert [item.item_id for item in items] == ["ch_lin"]
+
+
 def test_tts_one_item_per_script_section():
     script = {
         "version": "1.0",

@@ -20,6 +20,8 @@ unit (ORC-03). Nothing here calls a provider or touches the network.
 """
 from __future__ import annotations
 
+# risk:untested reason:"content chain is covered by tests/contracts/test_shortdrama_content.py; thin static gate cannot link that test mapping" owner:@kevinwanghd reviewed:2026-11-12
+
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -145,8 +147,15 @@ def _character_cards(
         cards.extend(raw.get("characters") or [])
         if "character_id" in raw:
             cards.append(raw)
-    characters_dir = episode_artifacts_dir(projects_dir, project, episode) / "characters"
-    if characters_dir.is_dir():
+    # Project-scoped cards are the series roster; episode-scoped cards win when
+    # a specific episode changes wardrobe or adds a character.
+    characters_dirs = (
+        project_artifacts_dir(projects_dir, project) / "characters",
+        episode_artifacts_dir(projects_dir, project, episode) / "characters",
+    )
+    for characters_dir in characters_dirs:
+        if not characters_dir.is_dir():
+            continue
         for path in sorted(characters_dir.glob("*.json")):
             try:
                 card = json.loads(path.read_text(encoding="utf-8"))

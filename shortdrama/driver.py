@@ -24,6 +24,8 @@ behind ``--approve-live --budget-usd``.
 """
 from __future__ import annotations
 
+# risk:untested reason:"driver content chain and gates are covered by tests/contracts/test_shortdrama_driver.py and test_shortdrama_content.py; thin static gate cannot link that mapping" owner:@kevinwanghd reviewed:2026-11-12
+
 import hashlib
 import json
 import re
@@ -552,6 +554,7 @@ class Driver:
             raw = self._executor(
                 tool, self._slot_inputs(stage, slot, tool, row, work_item)
             )
+        # risk:swallowed-exception reason:"provider errors are converted to an agent-ready ApiError with UNKNOWN billing state and reconciled before any retry; never ignored" owner:@kevinwanghd reviewed:2026-11-12
         except Exception as exc:  # provider call failed; billing identity unknown
             ledger.mark_submitted(entry["entry_id"], None)
             raise self._pause(
