@@ -369,6 +369,42 @@ def test_live_fetch_flattens_nested_task_output(monkeypatch):
     assert task["request_id"] == "req-1"
 
 
+def test_live_flat_succeeded_task_yields_video_url(no_network, monkeypatch):
+    """A flattened SUCCEEDED task must still surface ``video_url``.
+
+    The live transport moved video_url from output.video_url to the top level;
+    the success branch must accept both shapes or a billed job looks empty.
+    """
+
+    class _FlatTransport:
+        mode = "live"
+
+        def submit(self, payload):
+            return "task-1"
+
+        def fetch(self, task_id):
+            return {
+                "task_id": task_id,
+                "task_status": "SUCCEEDED",
+                "video_url": "https://example.invalid/video.mp4",
+            }
+
+    tool = DashscopeVideo()
+    monkeypatch.setattr(tool, "_transport", _FlatTransport())
+    result = tool.execute(
+        {
+            "prompt": "flat success",
+            "operation": "text_to_video",
+            "resolution": "480p",
+            "duration_seconds": 5,
+            "poll_interval_seconds": 0,
+        }
+    )
+    assert result.success is True
+    assert result.data["video_url"] == "https://example.invalid/video.mp4"
+    assert result.data["task_status"] == "SUCCEEDED"
+
+
 # ---------------------------------------------------------------------------
 # Cost model (Bailian price sheet 2026-11-11)
 # ---------------------------------------------------------------------------

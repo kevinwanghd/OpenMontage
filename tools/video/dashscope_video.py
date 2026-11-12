@@ -264,7 +264,13 @@ class DashscopeVideo(BaseTool):
                 duration_seconds=round(time.time() - start, 2),
             )
 
-        video_url = ((task.get("output") or {}).get("video_url")) or ""
+        # The live transport flattens DashScope's nested output; keep accepting
+        # the raw nested shape too so mock/other transports stay compatible.
+        video_url = (
+            task.get("video_url")
+            or ((task.get("output") or {}).get("video_url"))
+            or ""
+        )
         if not video_url:
             return ToolResult(
                 success=False,
