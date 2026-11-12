@@ -319,12 +319,12 @@ entries:
   - model: bailian/qwen3.8-max-0902
     operation: extract
     source: "tools/text/bailian_chat.py"
-    verified_at: null
-    verification_status: MOCKED
+    verified_at: "2026-11-12"
+    verification_status: VERIFIED
     commercial_rights: "official Alibaba Bailian API"
   - model: bailian/qwen3-vl-plus
     operation: vision
     source: "tools/text/bailian_chat.py"
-    verified_at: null
-    verification_status: MOCKED
+    verified_at: "2026-11-12"
+    verification_status: VERIFIED
     commercial_rights: "official Alibaba Bailian API"
