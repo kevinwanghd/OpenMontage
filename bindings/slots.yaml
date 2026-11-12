@@ -57,6 +57,13 @@ slots:
     required: true
     capability_family: subtitle
 
+  text_llm:
+    description: "Batch text reasoning (translate/classify/summarize/extract/vision)"
+    stage: assembly
+    required: false
+    capability_family: text_llm
+    required_operations: [translate]
+
   upscale:
     description: "480p draft -> 1080x1920 delivery upscale (DEL-01, F34)"
     stage: delivery
