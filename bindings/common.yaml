@@ -58,9 +58,11 @@ bindings:
 
   music:
     chain:
+      # music_gen is an ElevenLabs API tool; declaring it local made the
+      # budget gate under-count a paid call (NFR-01).
       - tool: music_gen
-        provider: local
-        tier: local
+        provider: elevenlabs
+        tier: paid
         operations: [music]
 
   compose:
@@ -76,6 +78,17 @@ bindings:
         provider: local
         tier: local
         operations: [subtitle]
+
+  text_llm:
+    chain:
+      # Free quota on the DashScope endpoint is the primary: marginal cost is
+      # zero and "stop when exhausted" rules out paid spill-over. No fallback
+      # is declared on purpose -- a missing key or exhausted quota must surface
+      # as BLOCKED/UNAVAILABLE, not silently reroute to a paid text model.
+      - tool: bailian_chat
+        provider: bailian
+        tier: free
+        operations: [translate, classify, summarize, extract, vision, draft]
 
   upscale:
     chain:

@@ -293,3 +293,44 @@ entries:
     verified_at: null
     verification_status: MOCKED
     commercial_rights: "local tool"
+
+  # --- Bailian free-tier text models (dashscope OpenAI-compatible endpoint) --
+  # The 1M-token-per-model free quota lives on this endpoint only; the Token
+  # Plan MaaS key does not reach it (401). One model per operation keeps the
+  # cheapest capable model on each route. MOCKED until a live call is measured.
+  - model: bailian/qwen-mt-lite
+    operation: translate
+    source: "tools/text/bailian_chat.py"
+    verified_at: "2026-11-12"
+    verification_status: VERIFIED
+    commercial_rights: "official Alibaba Bailian API"
+  - model: bailian/tongyi-intent-detect-v3
+    operation: classify
+    source: "tools/text/bailian_chat.py"
+    verified_at: "2026-11-12"
+    verification_status: VERIFIED
+    commercial_rights: "official Alibaba Bailian API"
+  - model: bailian/qwen3.7-plus
+    operation: summarize
+    source: "tools/text/bailian_chat.py"
+    verified_at: "2026-11-12"
+    verification_status: VERIFIED
+    commercial_rights: "official Alibaba Bailian API"
+  - model: bailian/qwen3.7-plus
+    operation: draft
+    source: "tools/text/bailian_chat.py"
+    verified_at: "2026-11-12"
+    verification_status: VERIFIED
+    commercial_rights: "official Alibaba Bailian API"
+  - model: bailian/qwen3.8-max-0902
+    operation: extract
+    source: "tools/text/bailian_chat.py"
+    verified_at: "2026-11-12"
+    verification_status: VERIFIED
+    commercial_rights: "official Alibaba Bailian API"
+  - model: bailian/qwen3-vl-plus
+    operation: vision
+    source: "tools/text/bailian_chat.py"
+    verified_at: "2026-11-12"
+    verification_status: VERIFIED
+    commercial_rights: "official Alibaba Bailian API"

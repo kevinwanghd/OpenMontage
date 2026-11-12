@@ -158,6 +158,17 @@ def fake_tool_state(name: str) -> dict:
 # --- entry points ----------------------------------------------------------
 
 
+def test_serve_command_is_wired_to_the_same_origin_console():
+    args = cli.build_parser().parse_args(["serve", "--port", "9123"])
+    assert args.func is cli._cmd_serve
+    assert args.port == 9123
+    assert args.host == "127.0.0.1"
+    assert args.allow_remote is False
+    # UI-11's console ships in the repo and is served from the same origin.
+    console = Path(__file__).resolve().parents[2] / "web" / "review-console"
+    assert (console / "index.html").is_file()
+
+
 def test_entrypoint_is_declared_and_python_m_runs():
     setup_py = (REPO_ROOT / "setup.py").read_text(encoding="utf-8")
     assert "om = shortdrama.cli:main" in setup_py

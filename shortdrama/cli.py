@@ -679,6 +679,41 @@ def _cmd_profile_use(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_serve(args: argparse.Namespace) -> int:
+    """Run the §10 API plus the static review console (UI-11) on one origin."""
+    import uvicorn
+    from fastapi.staticfiles import StaticFiles
+
+    from shortdrama.api import create_app
+
+    service = _service(args)
+    app = create_app(
+        projects_dir=service.projects_dir,
+        allow_remote=bool(args.allow_remote),
+        auth_token=args.auth_token,
+    )
+    console_dir = Path(__file__).resolve().parents[1] / "web" / "review-console"
+    console_url = None
+    if console_dir.is_dir():
+        app.mount(
+            "/review-console",
+            StaticFiles(directory=str(console_dir), html=True),
+            name="review-console",
+        )
+        # risk:hardcoded-url reason:"loopback console URL is assembled from runtime host/port, not a fixed deployment endpoint" owner:@kevinwanghd reviewed:2026-11-12
+        console_url = f"http://{args.host}:{args.port}/review-console/"
+    _write(
+        {
+            "serving": f"http://{args.host}:{args.port}",
+            "review_console": console_url,
+            "loopback_only": not args.allow_remote,
+        },
+        bool(getattr(args, "json", False)),
+    )
+    uvicorn.run(app, host=str(args.host), port=int(args.port))
+    return 0
+
+
 def _cmd_demo_real(args: argparse.Namespace) -> int:
     """Drive all nine stages for real — only behind explicit consent + budget."""
     service = _service(args)
@@ -924,6 +959,21 @@ def build_parser() -> argparse.ArgumentParser:
                    help="binding profile for --real (default: active profile)")
     _add_json(p)
     p.set_defaults(func=_cmd_demo)
+
+    p = commands.add_parser(
+        "serve", help="serve the review API and console on localhost"
+    )
+    p.add_argument("--host", default="127.0.0.1")
+    p.add_argument("--port", type=int, default=8765)
+    p.add_argument(
+        "--allow-remote",
+        action="store_true",
+        help="expose beyond loopback (requires --auth-token, UI-02)",
+    )
+    p.add_argument("--auth-token", default=None)
+    p.add_argument("--projects-dir", default=None)
+    _add_json(p)
+    p.set_defaults(func=_cmd_serve)
 
     return parser
 
