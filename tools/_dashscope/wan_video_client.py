@@ -19,6 +19,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
 from typing import Any, Optional
 
 # risk:untested reason:"MockWanTransport/LiveWanTransport 由 tests/contracts/test_dashscope_video.py 的 23 条契约用例覆盖；thin 模式的静态 test-check 无证据文件通路，按仓库规定登记豁免" owner:@kevinwanghd reviewed:2026-11-11
@@ -230,13 +231,18 @@ class LiveWanTransport:
         self,
         api_key: str,
         *,
-        base_url: str = BASE_URL,
+        base_url: Optional[str] = None,
         timeout: float = 60.0,
     ) -> None:
         if not api_key:
             raise ValueError("DASHSCOPE_API_KEY is required for the live transport")
         self.api_key = api_key
-        self.base_url = base_url.rstrip("/")
+        # Token-plan subscriptions expose the same async API on a dedicated
+        # host (e.g. https://token-plan.cn-beijing.maas.aliyuncs.com); allow it
+        # via DASHSCOPE_BASE_URL without editing code per model/service.
+        self.base_url = (
+            base_url or os.environ.get("DASHSCOPE_BASE_URL") or BASE_URL
+        ).rstrip("/")
         self.timeout = timeout
 
     def _headers(self) -> dict[str, str]:
@@ -271,4 +277,14 @@ class LiveWanTransport:
             timeout=self.timeout,
         )
         response.raise_for_status()
-        return response.json()
+        data = response.json()
+        # DashScope nests task fields under "output"; the tool's wait loop reads
+        # them at the top level (the mock transport's shape). Flatten here so a
+        # live RUNNING/SUCCEEDED task is not mistaken for UNKNOWN.
+        output = data.get("output") or {}
+        flat = dict(output)
+        flat.setdefault("task_id", task_id)
+        for key in ("request_id", "code", "message"):
+            if key in data and key not in flat:
+                flat[key] = data[key]
+        return flat
