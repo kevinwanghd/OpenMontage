@@ -27,6 +27,7 @@ from jsonschema import Draft202012Validator
 import lib.capability_slots as cs
 from tools._dashscope.wan_video_client import (
     RESOLUTION_PRICES_CNY_PER_SECOND,
+    LiveWanTransport,
     MockWanTransport,
     build_request_payload,
     normalize_operation,
@@ -316,6 +317,56 @@ def test_api_key_alone_does_not_enable_live_mode(no_network, monkeypatch):
     result = _run(DashscopeVideo(), prompt="still mock", poll_interval_seconds=0)
     assert result.success is True
     assert result.data["mode"] == "mock"
+
+
+def test_live_transport_honors_dashscope_base_url(no_network, monkeypatch):
+    """Token-plan subscriptions serve the same async API on a dedicated host.
+
+    DASHSCOPE_BASE_URL lets the live transport point there without editing
+    code; otherwise the standard DashScope host would reject the token-plan key.
+    """
+    monkeypatch.setenv("DASHSCOPE_VIDEO_LIVE", "1")
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "fake-key-for-testing")
+    monkeypatch.setenv(
+        "DASHSCOPE_BASE_URL", "https://token-plan.cn-beijing.maas.aliyuncs.com"
+    )
+    transport = DashscopeVideo()._resolve_transport()
+    assert transport.mode == "live"
+    assert transport.base_url == "https://token-plan.cn-beijing.maas.aliyuncs.com"
+
+
+def test_live_transport_defaults_to_official_dashscope(no_network, monkeypatch):
+    monkeypatch.setenv("DASHSCOPE_VIDEO_LIVE", "1")
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "fake-key-for-testing")
+    monkeypatch.delenv("DASHSCOPE_BASE_URL", raising=False)
+    transport = DashscopeVideo()._resolve_transport()
+    assert transport.base_url == "https://dashscope.aliyuncs.com"
+
+
+def test_live_fetch_flattens_nested_task_output(monkeypatch):
+    """DashScope nests task_status under ``output``; the wait loop reads it flat.
+
+    Without flattening, a RUNNING task looks like UNKNOWN and is treated as a
+    terminal failure even though the provider accepted (and billed) the job.
+    """
+    import requests as _requests
+
+    class _Resp:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "request_id": "req-1",
+                "output": {"task_id": "task-1", "task_status": "RUNNING"},
+            }
+
+    monkeypatch.setattr(_requests, "get", lambda *a, **k: _Resp())
+    transport = LiveWanTransport("fake-key", base_url="https://example.invalid")
+    task = transport.fetch("task-1")
+    assert task["task_status"] == "RUNNING"
+    assert task["task_id"] == "task-1"
+    assert task["request_id"] == "req-1"
 
 
 # ---------------------------------------------------------------------------
