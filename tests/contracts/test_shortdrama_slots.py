@@ -270,15 +270,210 @@ def test_repo_catalog_validates_against_capability_schema():
     assert catalog["entries"], "catalog must not be empty"
 
 
-def test_tiktok_draft_profile_declares_free_then_paid_480p_chain():
+# risk:test-removal reason:"旧用例 test_tiktok_draft_profile_declares_free_then_paid_480p_chain 已被本用例取代，覆盖同一绑定链并新增官方主链与会员非主链断言" owner:@kevinwanghd reviewed:2026-11-12
+def test_tiktok_draft_video_primary_is_official_dashscope():
+    """Owner decision 2026-11-12: the official Bailian API is the primary chain.
+
+    Membership gateways may only follow it. Their catalog entries stay
+    UNVERIFIED because R25 (membership ToS) is unresolved.
+    """
     data = cs.load_profile("tiktok-draft")
     chain = data["bindings"]["video_primary"]["chain"]
-    assert [c["tier"] for c in chain] == ["free", "credit", "paid_fallback"]
-    paid = chain[-1]
-    assert paid["tool"] == "dashscope_video"
-    assert paid["catalog_model"] == "dashscope/wan3.0-video"
-    assert paid["capabilities"]["output_resolutions"] == ["480p"]
-    assert paid["cost_cny_per_s"] == 0.30
+    primary = chain[0]
+    assert primary["tool"] == "dashscope_video"
+    assert primary["provider"] == "dashscope"
+    assert primary["catalog_model"] == "dashscope/wan3.0-video"
+    assert primary["capabilities"]["output_resolutions"] == ["480p"]
+    assert primary["cost_cny_per_s"] == 0.30
+    assert primary.get("primary_eligible", True) is True
+
+    membership_tools = {"molica_video", "holopix_video"}
+    for index, candidate in enumerate(chain[1:], start=1):
+        assert candidate["tool"] in membership_tools
+        assert candidate["primary_eligible"] is False, (
+            f"{candidate['tool']} must not be usable as the primary chain"
+        )
+        assert candidate["role"] == "optional_fallback"
+        assert "R25" in candidate["note"]
+        entry = cs.catalog_entry(candidate["catalog_model"], "image_to_video")
+        assert entry is not None
+        assert entry["verification_status"] == "UNVERIFIED"
+
+    # The mock-first dashscope tool must never be reported as verified yet.
+    video_entry = cs.catalog_entry("dashscope/wan3.0-video", "image_to_video")
+    assert video_entry["verification_status"] == "MOCKED"
+
+
+def test_membership_gateways_are_optional_not_primary():
+    data = cs.load_profile("tiktok-draft")
+    chain = data["bindings"]["video_primary"]["chain"]
+    assert chain[0]["tool"] not in {"molica_video", "holopix_video"}
+    positions = {c["tool"]: i for i, c in enumerate(chain)}
+    assert positions["dashscope_video"] == 0
+    assert positions["molica_video"] > positions["dashscope_video"]
+    assert positions["holopix_video"] > positions["dashscope_video"]
+
+
+def test_image_slots_prefer_official_dashscope_image():
+    """Image slots also follow the official-first decision.
+
+    dashscope_image is an official Bailian API tool already present in the
+    registry; the legacy fal.ai gateway remains only as a fallback. No live
+    measurement exists, so its catalog entry is UNVERIFIED.
+    """
+    data = cs.load_profile("tiktok-draft")
+    for slot in ("image_character_key", "image_reference"):
+        chain = data["bindings"][slot]["chain"]
+        assert chain[0]["tool"] == "dashscope_image"
+        assert chain[0]["provider"] == "dashscope"
+        assert chain[0]["catalog_model"] == "dashscope/qwen-image-2.0-pro"
+        assert chain[1]["tool"] == "bria_fal_image"
+
+    entry = cs.catalog_entry("dashscope/qwen-image-2.0-pro", "text_to_image")
+    assert entry is not None
+    assert entry["verification_status"] == "UNVERIFIED"
+
+
+def _available(capabilities=None, install=""):
+    state = _tool(capabilities=capabilities)
+    state["install_instructions"] = install
+    return state
+
+
+def _unavailable(install=""):
+    state = _tool(status="unavailable")
+    state["install_instructions"] = install
+    return state
+
+
+def _patch_real_profile_states(monkeypatch, overrides=None):
+    """Patch the registry seam for tests that read the real bindings tree."""
+    monkeypatch.setenv(cs.BINDINGS_DIR_ENV, str(REAL_BINDINGS))
+    overrides = overrides or {}
+    default = _MISSING
+
+    def fake_tool_state(name):
+        if name in overrides:
+            return copy.deepcopy(overrides[name])
+        return copy.deepcopy(default)
+
+    monkeypatch.setattr(cs, "tool_state", fake_tool_state)
+
+
+def test_tiktok_draft_resolves_official_dashscope_when_available(monkeypatch):
+    _patch_real_profile_states(
+        monkeypatch,
+        {
+            "dashscope_video": _available(["text_to_video", "image_to_video"]),
+            "molica_video": _available(["text_to_video", "image_to_video"]),
+            "holopix_video": _available(["text_to_video", "image_to_video"]),
+        },
+    )
+    assert cs.resolve("video_primary", "tiktok-draft") == "dashscope_video"
+
+    caps = cs.supports("video_primary", "tiktok-draft")
+    assert caps["tool"] == "dashscope_video"
+    assert caps["provider"] == "dashscope"
+    assert caps["verification_status"] == "MOCKED"
+    assert caps["output_resolutions"] == ["480p"]
+
+
+def test_official_unavailable_falls_back_to_optional_membership(monkeypatch):
+    """Membership gateways stay reachable -- but only after the official primary."""
+    _patch_real_profile_states(
+        monkeypatch,
+        {
+            "dashscope_video": _unavailable("Set DASHSCOPE_API_KEY."),
+            "molica_video": _available(["text_to_video", "image_to_video"]),
+        },
+    )
+    assert cs.resolve("video_primary", "tiktok-draft") == "molica_video"
+
+
+def test_draft_tier_never_auto_selects_membership_gateways(monkeypatch):
+    _patch_real_profile_states(
+        monkeypatch,
+        {
+            "dashscope_video": _available(["text_to_video", "image_to_video"]),
+            "molica_video": _available(["text_to_video", "image_to_video"]),
+            "holopix_video": _available(["text_to_video", "image_to_video"]),
+        },
+    )
+    plan = cs.plan_tiers("video_primary", "tiktok-draft")
+    assert plan["draft"]["status"] == "OK", plan["draft"].get("reason")
+    assert plan["draft"]["tool"] == "dashscope_video"
+
+    rows = {row["tool"]: row for row in plan["cost_comparison"]}
+    assert rows["molica_video"]["primary_eligible"] is False
+    assert rows["holopix_video"]["primary_eligible"] is False
+    assert rows["dashscope_video"]["primary_eligible"] is True
+
+
+def test_switching_profile_keeps_the_real_short_drama_pipeline_bytes(monkeypatch):
+    pipeline = REPO_ROOT / "pipeline_defs" / "short-drama.yaml"
+    before = pipeline.read_bytes()
+    _patch_real_profile_states(
+        monkeypatch,
+        {
+            "dashscope_video": _available(["text_to_video", "image_to_video"]),
+            "seedance_ark": _available(["text_to_video", "image_to_video"]),
+        },
+    )
+
+    assert cs.resolve("video_primary", "tiktok-draft") == "dashscope_video"
+    cs.load_profile("seedance")
+    assert cs.resolve("video_primary", "seedance") == "seedance_ark"
+    cs.load_profile("tiktok-draft")
+
+    assert pipeline.read_bytes() == before
+    text = before.decode("utf-8")
+    assert "slot:video_primary" in text
+    assert "dashscope_video" not in text
+
+
+def test_doctor_without_credentials_is_blocked_and_reports_setup(monkeypatch):
+    """No key -> BLOCKED with actionable setup guidance, never a fake GREEN."""
+    hint = "Set DASHSCOPE_API_KEY to your Alibaba Cloud Bailian API key."
+    _patch_real_profile_states(
+        monkeypatch,
+        {
+            "dashscope_video": _unavailable(hint),
+            "dashscope_image": _unavailable(hint),
+            "bria_fal_image": _unavailable("Set FAL_KEY for the fal.ai gateway."),
+            "doubao_tts": _unavailable("Set DOUBAO_SPEECH_API_KEY."),
+        },
+    )
+    report = cs.doctor("tiktok-draft")
+    assert report["status"] == "BLOCKED"
+    codes = {r["code"] for r in report["reasons"]}
+    assert "CREDENTIALS_MISSING" in codes
+    setup = [r for r in report["reasons"] if r["code"] == "SETUP_REQUIRED"]
+    assert setup, "a blocked slot must explain how to fix its credential"
+    assert any("DASHSCOPE_API_KEY" in r["message"] for r in setup)
+    assert any(r["slot"] == "image_character_key" for r in setup)
+
+
+def test_doctor_mocked_dashscope_video_is_degraded_not_green(monkeypatch):
+    """MOCKED is not VERIFIED: the three-state verdict must stay honest."""
+    _patch_real_profile_states(
+        monkeypatch,
+        {
+            "dashscope_video": _available(["text_to_video", "image_to_video"]),
+            "dashscope_image": _available(["text_to_image"]),
+            "bria_fal_image": _available(["image_edit"]),
+            "doubao_tts": _available(["tts"]),
+            "kling_lip_sync": _available(["lipsync"]),
+            "music_gen": _available(["music"]),
+            "video_compose": _available(["compose"]),
+            "subtitle_gen": _available(["subtitle"]),
+            "upscale": _available(["upscale"]),
+        },
+    )
+    report = cs.doctor("tiktok-draft")
+    assert report["status"] == "DEGRADED"
+    video_reasons = [r for r in report["reasons"] if r["slot"] == "video_primary"]
+    assert any(r["code"] == "CAPABILITY_UNVERIFIED" for r in video_reasons)
+    assert not any("VERIFIED" == str(r.get("message", "")) for r in report["reasons"])
 
 
 def test_holopix_is_registered_but_credits_exhausted():

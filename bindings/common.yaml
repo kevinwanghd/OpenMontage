@@ -9,21 +9,38 @@
 # reported, never silently upgraded to GREEN.
 version: "1.0"
 bindings:
+  # Image slots follow the same official-first decision as video: the primary is
+  # the official Alibaba Bailian image API (dashscope_image / Qwen-Image), whose
+  # contract lives in tools/graphics/dashscope_image.py. The legacy fal.ai
+  # gateway stays as an explicit fallback. With no DASHSCOPE_API_KEY the tool
+  # reports unavailable and doctor stays BLOCKED/DEGRADED -- never GREEN.
   image_character_key:
     chain:
+      - tool: dashscope_image
+        provider: dashscope
+        catalog_model: dashscope/qwen-image-2.0-pro
+        tier: paid
+        operations: [text_to_image]
       - tool: bria_fal_image
         provider: bria
         catalog_model: bria/fibo-2
         tier: paid
         operations: [image_edit]
+        note: "legacy fal.ai gateway fallback (FAL_KEY); image edit path"
 
   image_reference:
     chain:
+      - tool: dashscope_image
+        provider: dashscope
+        catalog_model: dashscope/qwen-image-2.0-pro
+        tier: paid
+        operations: [text_to_image]
       - tool: bria_fal_image
         provider: bria
         catalog_model: bria/fibo-2
         tier: paid
         operations: [image_edit]
+        note: "legacy fal.ai gateway fallback (FAL_KEY); image edit path"
 
   tts_voice:
     chain:
