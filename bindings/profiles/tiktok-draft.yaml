@@ -1,17 +1,21 @@
-# P0 primary draft profile (A2 / MOD-03 / §12.10, v2.4 cost routing).
+# P0 primary draft profile (A2 / MOD-03 / §12.10).
 #
-# Priority: free / credit-backed memberships first (molica, then Holopix) and
-# only when those are insufficient or exhausted fall back to Bailian
-# wan3.0-video at 480P (¥0.30/s). Delivery is 480P -> 1080x1920 upscale, which
-# is a DEGRADED path (DEL-01, F34) declared below -- not improvised at runtime.
+# Routing decision (owner, 2026-11-12): M1 video generation runs on the official
+# Alibaba Bailian (DashScope) subscription -- wan3.0-video at 480P (¥0.30/s).
+# Membership gateways (molica, Holopix) are kept registered as optional
+# fallbacks only: their ToS/commercial rights are UNVERIFIED (R25), so they must
+# never be the primary chain. Delivery is 480P -> 1080x1920 upscale, a DEGRADED
+# path (DEL-01, F34) declared below -- not improvised at runtime.
 version: "1.0"
 profile: tiktok-draft
-description: "Free/credits first, wan3.0-video 480P fallback, 1080P delivery via upscale."
+description: "Official Bailian wan3.0-video 480P primary; membership gateways optional/unverified; 1080P delivery via upscale."
 draft: true
 cost_routing:
-  mode: free_first_then_paid
-  paid_fallback: dashscope_video
-  paid_fallback_resolution: 480p
+  mode: official_first
+  primary: dashscope_video
+  primary_resolution: 480p
+  optional_fallbacks: [molica_video, holopix_video]
+  optional_fallback_status: "UNVERIFIED membership ToS (R25); requires approval before use"
 delivery:
   target_platform: tiktok
   target_resolution: 1080x1920
@@ -22,42 +26,66 @@ delivery:
 bindings:
   video_primary:
     chain:
-      # 1. Free membership queue: no per-video cash cost.
+      # 1. Official Alibaba Bailian API: the sole primary chain (owner decision
+      #    2026-11-12). M0 runs the mock transport; verification_status stays
+      #    MOCKED until M1 measures a real call.
+      - tool: dashscope_video
+        provider: dashscope
+        catalog_model: dashscope/wan3.0-video
+        tier: paid
+        cost_cny_per_s: 0.30
+        operations: [text_to_video, image_to_video]
+        capabilities:
+          output_resolutions: ["480p"]
+      # 2. Optional membership fallback -- NOT usable as the primary chain:
+      #    membership ToS/commercial rights are UNVERIFIED (R25). Only reachable
+      #    when the official primary is unavailable, and only with approval.
       - tool: molica_video
         provider: molica
         catalog_model: molica/wan30video
         tier: free
         session_auth: true
+        primary_eligible: false
+        role: optional_fallback
+        note: "UNVERIFIED membership ToS (R25); optional fallback, not a primary chain"
         operations: [text_to_video, image_to_video, reference_to_video]
-      # 2. Credit-backed membership: prepaid credits, still no cash spend.
+      # 3. Optional credit-backed membership -- also NOT usable as primary.
       - tool: holopix_video
         provider: holopix
         catalog_model: holopix/seedance-2-0
         tier: credit
         session_auth: true
+        primary_eligible: false
+        role: optional_fallback
+        note: "UNVERIFIED membership ToS (R25); optional fallback, not a primary chain"
         operations: [text_to_video, image_to_video, first_last_frame_to_video]
-      # 3. Paid fallback only after the free/credit tiers are exhausted.
-      - tool: dashscope_video
-        provider: dashscope
-        catalog_model: dashscope/wan3.0-video
-        tier: paid_fallback
-        cost_cny_per_s: 0.30
-        operations: [text_to_video, image_to_video]
-        capabilities:
-          output_resolutions: ["480p"]
 
 degradation:
-  - id: video_primary_free_tier_exhausted
+  # Declared first so a concrete unmet resolution outranks the generic
+  # chain-degraded plan (both may match at once; equal specificity keeps the
+  # first declaration).
+  - id: delivery_upscale
+    slot: video_primary
+    when:
+      missing_output_resolutions: ["1080p"]
+    lost: [native_1080p]
+    path:
+      - stage: delivery_upscale
+        binding: upscale
+    approval_required: false
+    declared: true
+    note: "480P draft -> 1080x1920 upscale; marked DEGRADED in delivery artifact (DEL-01/F34)."
+
+  - id: video_primary_official_unavailable
     slot: video_primary
     when:
       chain_degraded: true
-    lost: [free_tier]
+    lost: [official_primary]
     path:
       - stage: shot_gen
-        binding: dashscope_video
-        resolution: 480p
+        binding: molica_video
     approval_required: true
-    note: "Free/credit tier unavailable -> wan3.0-video 480P at ¥0.30/s; estimate and approval required first (NFR-01)."
+    note: "Official Bailian unavailable -> membership gateway only; membership ToS is UNVERIFIED (R25), approval required."
 
   - id: video_primary_no_native_lipsync
     slot: video_primary
@@ -70,15 +98,3 @@ degradation:
       - stage: mux
     approval_required: true
     note: "Draft video binding cannot do native dialogue lipsync; add TTS + lipsync + mux sub-stages."
-
-  - id: delivery_upscale
-    slot: video_primary
-    when:
-      missing_output_resolutions: ["1080p"]
-    lost: [native_1080p]
-    path:
-      - stage: delivery_upscale
-        binding: upscale
-    approval_required: false
-    declared: true
-    note: "480P draft -> 1080x1920 upscale; marked DEGRADED in delivery artifact (DEL-01/F34)."

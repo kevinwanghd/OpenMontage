@@ -237,7 +237,8 @@ def tool_state(name: str) -> dict:
     Shape::
 
         {"registered": bool, "status": "available"|"unavailable"|"degraded"|"missing",
-         "supports": {...}, "capabilities": [...], "module_path": str, "error": str|None}
+         "supports": {...}, "capabilities": [...], "module_path": str,
+         "install_instructions": str, "error": str|None}
     """
     from tools.tool_registry import registry
 
@@ -251,6 +252,7 @@ def tool_state(name: str) -> dict:
             "supports": {},
             "capabilities": [],
             "module_path": None,
+            "install_instructions": "",
             "error": f"tool registry unavailable: {exc}",
         }
     if tool is None:
@@ -260,8 +262,10 @@ def tool_state(name: str) -> dict:
             "supports": {},
             "capabilities": [],
             "module_path": None,
+            "install_instructions": "",
             "error": None,
         }
+    install_instructions = str(getattr(tool, "install_instructions", "") or "")
     try:
         status = tool.get_status().value
     except Exception as exc:
@@ -271,6 +275,7 @@ def tool_state(name: str) -> dict:
             "supports": dict(getattr(tool, "supports", {}) or {}),
             "capabilities": list(getattr(tool, "capabilities", []) or []),
             "module_path": getattr(tool.__class__, "__module__", None),
+            "install_instructions": install_instructions,
             "error": f"status check failed: {exc}",
         }
     return {
@@ -279,6 +284,7 @@ def tool_state(name: str) -> dict:
         "supports": dict(getattr(tool, "supports", {}) or {}),
         "capabilities": list(getattr(tool, "capabilities", []) or []),
         "module_path": getattr(tool.__class__, "__module__", None),
+        "install_instructions": install_instructions,
         "error": None,
     }
 
@@ -802,6 +808,10 @@ def _comparison_rows(
                 "model": candidate.get("catalog_model"),
                 "tier": candidate.get("tier"),
                 "chain_index": index,
+                # Candidates marked ``primary_eligible: false`` (membership
+                # gateways with unverified ToS, R25) stay visible in the
+                # comparison but can never be auto-selected as the draft tier.
+                "primary_eligible": bool(candidate.get("primary_eligible", True)),
                 "usable": usable,
                 "rejection": None if usable else {
                     "code": code,
@@ -936,7 +946,10 @@ def plan_tiers(
     rows = _comparison_rows(
         slot, profile_data, operation=op, duration_s=duration_s, requirements=draft_reqs
     )
-    eligible = [row for row in rows if row["usable"] and row["meets_requirements"]]
+    eligible = [
+        row for row in rows
+        if row["usable"] and row["meets_requirements"] and row["primary_eligible"]
+    ]
     eligible.sort(key=_draft_order)
     draft_choice = eligible[0] if eligible else None
 
@@ -947,7 +960,7 @@ def plan_tiers(
         "approval_required": False,
         "candidates": eligible,
         "reason": "" if draft_choice else (
-            "no usable candidate satisfies the draft requirements"
+            "no usable primary-eligible candidate satisfies the draft requirements"
         ),
     }
     draft.update(_tier_choice(draft_choice))
@@ -1290,6 +1303,25 @@ def doctor(profile: str) -> dict:
                     severity=severity,
                     tool=str(rejection["tool"]) if rejection.get("tool") else None,
                 )
+                # Never leave a blocked slot without an actionable setup hint:
+                # the tool owns the install/credential instructions.
+                if rejection["code"] in (
+                    "CREDENTIALS_MISSING",
+                    "TOOL_UNAVAILABLE",
+                ) and rejection.get("tool"):
+                    hint = str(
+                        tool_state(str(rejection["tool"])).get("install_instructions")
+                        or ""
+                    ).strip()
+                    if hint:
+                        add(
+                            "SETUP_REQUIRED",
+                            f"{slot}: {rejection['tool']} setup: "
+                            + " ".join(hint.split()),
+                            slot=slot,
+                            severity=severity,
+                            tool=str(rejection["tool"]),
+                        )
             if plan is not None:
                 degrading = _plan_result(slot, plan, unmet, info)
                 degradation.append(degrading)

@@ -1,0 +1,26 @@
+# DashScope / Bailian image provider fragment (WP-2).
+#
+# Aggregated by lib/capability_slots.load_catalog(); this file never edits
+# bindings/capability_catalog.yaml. The official Bailian image API is the
+# primary chain for image_character_key / image_reference (owner decision
+# 2026-11-12).
+#
+# Evidence: tools/graphics/dashscope_image.py model/size contract snapshot
+# 2026-11-12. The tool is declared with dependencies = [] but overrides
+# get_status() to require DASHSCOPE_API_KEY, so doctor reports unavailable
+# instead of faking availability. No live call has been measured yet, hence
+# verification_status stays UNVERIFIED (never VERIFIED on a mock).
+version: "1.0"
+entries:
+  - model: dashscope/qwen-image-2.0-pro
+    operation: text_to_image
+    source: "tools/graphics/dashscope_image.py contract snapshot 2026-11-12"
+    verified_at: null
+    verification_status: UNVERIFIED
+    commercial_rights: "Bailian ToS; commercial terms re-checked before paid delivery"
+  - model: dashscope/qwen-image-2.0-pro
+    operation: image_edit
+    source: "declared in tools/graphics/dashscope_image.py as not supported (use the fal gateway for edits)"
+    verified_at: null
+    verification_status: BLOCKED
+    commercial_rights: "Bailian ToS; image_edit is not provided by this adapter"
