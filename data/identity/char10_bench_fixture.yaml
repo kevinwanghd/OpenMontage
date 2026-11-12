@@ -1,0 +1,64 @@
+# CHAR-10 / CHAR-07 offline bench fixture (synthetic, deterministic).
+#
+# These vectors are hand-authored, NOT face measurements. A run over this
+# fixture with the built-in `fixture_embedder` is MOCKED: it proves the bench
+# contract (scoring, sweep, per-model threshold, report shape) offline, with no
+# network and no model download. It can never be VERIFIED and never GREEN.
+#
+# A real M1 run replaces this fixture with labelled (sample_a, sample_b) pairs
+# pointing at real crops and injects a real embedder; only then may the report
+# say VERIFIED.
+version: "1.0"
+kind: synthetic_identity_bench_fixture
+requirement: CHAR-10
+metric_default: cosine
+notes: >
+  Synthetic fixture only. Similarities are engineered so the calibrated
+  threshold lands near the midpoint of the same/different gap; do not read the
+  accuracy as a claim about any real face model.
+
+# Sample key -> embedding vector. Cosine similarity is the decision input.
+samples:
+  alice_frontal: [1.0, 0.0, 0.0, 0.0]
+  alice_profile: [0.96, 0.08, 0.0, 0.02]
+  bob_frontal: [0.0, 1.0, 0.0, 0.0]
+  bob_profile: [0.05, 0.95, 0.0, 0.03]
+  carol_frontal: [0.0, 0.0, 1.0, 0.0]
+  carol_profile: [0.02, 0.04, 0.95, 0.0]
+
+pairs:
+  - id: alice_frontal__alice_profile
+    sample_a: alice_frontal
+    sample_b: alice_profile
+    same_person: true
+    slices: {pose: mixed}
+  - id: bob_frontal__bob_profile
+    sample_a: bob_frontal
+    sample_b: bob_profile
+    same_person: true
+    slices: {pose: mixed}
+  - id: carol_frontal__carol_profile
+    sample_a: carol_frontal
+    sample_b: carol_profile
+    same_person: true
+    slices: {pose: mixed}
+  - id: alice_frontal__bob_frontal
+    sample_a: alice_frontal
+    sample_b: bob_frontal
+    same_person: false
+    slices: {pose: frontal}
+  - id: alice_profile__carol_frontal
+    sample_a: alice_profile
+    sample_b: carol_frontal
+    same_person: false
+    slices: {pose: mixed}
+  - id: bob_profile__carol_profile
+    sample_a: bob_profile
+    sample_b: carol_profile
+    same_person: false
+    slices: {pose: mixed}
+  - id: carol_profile__alice_frontal
+    sample_a: carol_profile
+    sample_b: alice_frontal
+    same_person: false
+    slices: {pose: frontal}
