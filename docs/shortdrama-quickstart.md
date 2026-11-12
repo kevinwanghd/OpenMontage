@@ -145,6 +145,9 @@ om demo --real --approve-live --budget-usd 5 --json
 - 声明的降级路径（如无原生口型 → TTS + lipsync + mux、480P → 1080P upscale）和
   provider 回退会在执行前写入 `projects/<project>/decision_log.jsonl`（NFR-06），
   不会静默替换。
+- **token-plan 订阅**：若 key 来自百炼 token-plan（`https://token-plan.cn-beijing.maas.aliyuncs.com`），
+  在 `.env` 设置 `DASHSCOPE_BASE_URL=https://token-plan.cn-beijing.maas.aliyuncs.com`；
+  不设置时默认走官方 `https://dashscope.aliyuncs.com`。
 
 真实调用会产生费用与外部 API 请求；测试与 CI 一律只用 mock/假执行器。
 
