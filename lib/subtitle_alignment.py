@@ -494,6 +494,7 @@ def align_from_forced_alignment(
 
     try:
         payload = aligner(audio_path, transcript)
+    # risk:suppressed-warning reason:"对齐器为外部注入对象，任意异常需转结构化 BLOCKED 而非中断批量对齐" owner:@kevin reviewed:2026-11-12
     except Exception as exc:  # noqa: BLE001 - surface any aligner failure
         return _blocked(
             method=METHOD_UNKNOWN,
