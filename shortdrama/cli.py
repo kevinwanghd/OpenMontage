@@ -700,6 +700,7 @@ def _cmd_serve(args: argparse.Namespace) -> int:
             StaticFiles(directory=str(console_dir), html=True),
             name="review-console",
         )
+        # risk:hardcoded-url reason:"loopback console URL is assembled from runtime host/port, not a fixed deployment endpoint" owner:@kevinwanghd reviewed:2026-11-12
         console_url = f"http://{args.host}:{args.port}/review-console/"
     _write(
         {

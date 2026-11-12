@@ -50,6 +50,7 @@ TASK_ROUTES: dict[str, tuple[str, int]] = {
 DEFAULT_ROUTE = ("qwen3.7-plus", 1024)
 MIN_MAX_TOKENS = 256
 ENV_KEY = "DASHSCOPE_API_KEY"
+# risk:hardcoded-url reason:"the DashScope free-tier endpoint is fixed by the provider; it is not an operator-configurable deployment URL" owner:@kevinwanghd reviewed:2026-11-12
 ENDPOINT = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
 
 
@@ -65,6 +66,7 @@ class BailianChat(BaseTool):
     runtime = ToolRuntime.API
 
     dependencies = [f"env:{ENV_KEY}"]
+    # risk:hardcoded-url reason:"setup documentation URL, not a runtime endpoint; operators only set the API key" owner:@kevinwanghd reviewed:2026-11-12
     install_instructions = (
         "Set DASHSCOPE_API_KEY to a Bailian (DashScope) API key.\n"
         "  Create one at https://bailian.console.aliyun.com/#/api-key.\n"
@@ -213,7 +215,7 @@ class BailianChat(BaseTool):
             response = self._post_with_retry(requests, payload, api_key, timeout)
             response.raise_for_status()
             data = response.json()
-        # risk:swallowed-exception reason:"every transport failure becomes ToolResult(success=False, error=...), surfaced to the caller and never silently ignored" owner:@kevinwanghd reviewed:2026-11-12
+        # risk:suppressed-warning reason:"noqa BLE001 is deliberate: every transport failure becomes ToolResult(success=False, error=...) and is surfaced, never ignored" owner:@kevinwanghd reviewed:2026-11-12
         except Exception as e:  # noqa: BLE001 - report every transport failure
             return ToolResult(
                 success=False,
