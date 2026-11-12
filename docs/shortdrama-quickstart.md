@@ -12,6 +12,11 @@ om doctor  →  om demo --mock  →  om review list  →  om review decide  → 
 > M0 只验证本地文件契约（审核队列、决策日志、统计）。真实图像/视频生成属于 M1，
 > 没有 Key 时 `om doctor` 报告 `BLOCKED` 是**预期行为**，不影响本指南的 hello-world。
 
+> **审核优先（M1）**：正式生成前先审剧本（`script`）和分镜脚本（`scene_plan`）。
+> 两阶段的 checkpoint 必须为 `completed + human_approved`，`om demo --real`
+> 才会跨过创作阶段进入付费生成；否则在任何外呼之前暂停并给出修复指引。
+> 浏览器审核台：先 `om serve`，再打开 `http://127.0.0.1:8765/review-console/`。
+
 ---
 
 ## 前置条件

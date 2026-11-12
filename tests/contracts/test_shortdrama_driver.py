@@ -199,10 +199,132 @@ def fake_tool_state(name: str) -> dict:
     }
 
 
+def _write_json(path: Path, data: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _approved_checkpoint(pipeline_dir: Path, stage: str, artifacts: dict) -> None:
+    checkpoint = {
+        "version": "1.0",
+        "project_id": "demo",
+        "pipeline_type": "short-drama",
+        "stage": stage,
+        "status": "completed",
+        "timestamp": "2026-11-12T00:00:00+00:00",
+        "checkpoint_policy": "manual_all",
+        "human_approval_required": True,
+        "human_approved": True,
+        "artifacts": artifacts,
+    }
+    _write_json(pipeline_dir / "demo" / f"checkpoint_{stage}.json", checkpoint)
+
+
+def seed_reviewed_artifacts(projects: Path, *, shots: int = 1) -> None:
+    """Seed the agent-authored artifacts and the approved review checkpoints.
+
+    ``character_cast`` is deliberately left unexecuted (no checkpoint): the
+    driver runs it, exactly like production. ``scene_plan`` is written as an
+    approved checkpoint directly because its manifest predecessor
+    (``character_cast``) is still pending at seed time.
+    """
+    brief = {
+        "version": "1.0",
+        "title": "The Last Message",
+        "hook": "She reads his message one hour after the funeral.",
+        "key_points": ["a phone that should be dead", "a choice"],
+        "tone": "tense",
+        "style": "live-action vertical drama",
+        "target_platform": "tiktok",
+        "target_duration_seconds": 120,
+    }
+    beat_map = {"version": "1.0", "total_duration_seconds": 120, "beats": []}
+    script = {
+        "version": "1.0",
+        "title": "The Last Message",
+        "total_duration_seconds": 5 * shots,
+        "sections": [
+            {
+                "id": "s1",
+                "text": "You said you'd never leave me.",
+                "start_seconds": 0,
+                "end_seconds": 5 * shots,
+                "speaker_directions": "quiet, hurt",
+            }
+        ],
+    }
+    scene_plan = {
+        "version": "1.0",
+        "scenes": [
+            {
+                "id": "sc1",
+                "type": "character_scene",
+                "description": "two people in a dim room",
+                "start_seconds": 0,
+                "end_seconds": 5 * shots,
+            }
+        ],
+        "shots": [
+            {
+                "shot_id": f"sh_{index:03d}",
+                "duration_s": 5,
+                "single_action": "She turns away from him",
+                "visual_evidence": "tears catch the window light",
+                "shot_language": {
+                    "shot_size": "close_up",
+                    "camera_movement": "static",
+                    "lighting_key": "low_key",
+                },
+                "reference_character_ids": ["ch_lin"],
+                "needs_lipsync": True,
+                "candidates": 2,
+            }
+            for index in range(shots)
+        ],
+    }
+    character = {
+        "version": "1.0",
+        "character_id": "ch_lin",
+        "name": "Lin",
+        "canonical_description": "woman in her late twenties, black hair, grey coat",
+        "voice_id": "voice_lin",
+    }
+    asset_manifest = {
+        "version": "1.0",
+        "assets": [
+            {
+                "id": f"kf_sh_{index:03d}",
+                "type": "image",
+                "path": f"assets/keyframes/sh_{index:03d}_v1.png",
+                "source_tool": "img_ref",
+                "scene_id": f"sh_{index:03d}",
+            }
+            for index in range(shots)
+        ],
+    }
+    edit_decisions = {"version": "1.0", "cuts": [], "render_runtime": "ffmpeg"}
+
+    artifacts_dir = projects / "demo" / "ep01" / "artifacts"
+    _write_json(artifacts_dir / "brief.json", brief)
+    _write_json(artifacts_dir / "beat_map.json", beat_map)
+    _write_json(artifacts_dir / "script.json", script)
+    _write_json(artifacts_dir / "scene_plan.json", scene_plan)
+    _write_json(artifacts_dir / "character_design.json", {"version": "1.0", "characters": []})
+    _write_json(artifacts_dir / "characters" / "ch_lin.json", character)
+    _write_json(artifacts_dir / "asset_manifest.json", asset_manifest)
+    _write_json(artifacts_dir / "edit_decisions.json", edit_decisions)
+
+    _approved_checkpoint(projects, "idea", {"brief": brief})
+    _approved_checkpoint(projects, "beat_map", {})
+    _approved_checkpoint(projects, "script", {"script": script})
+    _approved_checkpoint(projects, "scene_plan", {"scene_plan": scene_plan})
+
+
 @pytest.fixture
 def projects(tmp_path):
     root = tmp_path / "projects"
     root.mkdir()
+    seed_reviewed_artifacts(root)
     return root
 
 
@@ -306,7 +428,9 @@ def test_cli_demo_real_requires_consent_flags(projects, capsys):
     assert envelope["code"] == ErrorCode.VALIDATION_ERROR.value
     assert envelope["recovery"] == "do-X-first"
     assert envelope["side_effects"] == "none"
-    assert not (projects / "demo").exists()
+    # No ledger, asset or spend artifact is created by the refused run.
+    assert not (projects / "demo" / "ep01" / "ledger.jsonl").exists()
+    assert not (projects / "demo" / "ep01" / "assets").exists()
 
 
 def test_cli_demo_rejects_mock_and_real_together(projects, capsys):
@@ -353,7 +477,12 @@ def test_intent_is_written_before_each_paid_call(projects, bindings):
 
     assert result["real"] is True
     assert result["external_api_calls"] == len(observed) == 10
-    assert [stage["stage"] for stage in result["stages"]] == NINE_STAGES
+    # The approved planning stages are skipped by the resume plan; the driver
+    # runs from character_cast through delivery.
+    assert [stage["stage"] for stage in result["stages"]] == [
+        "character_cast", "scene_plan", "keyframe", "shot_gen", "assembly",
+        "delivery",
+    ]
 
     ledger = SubmissionLedger("demo", "ep01", projects)
     resolved = ledger._latest().values()
@@ -468,6 +597,71 @@ def test_unknown_price_pauses_instead_of_spending_blind(projects, tmp_path, monk
     assert "price unknown" in raised.value.what
     assert calls == []
     assert not (projects / "demo" / "ep01" / "ledger.jsonl").exists()
+
+
+# ---------------------------------------------------------------------------
+# 4b. content chain + review gates (M1)
+# ---------------------------------------------------------------------------
+
+
+def test_unapproved_script_stops_before_any_paid_call(projects, bindings):
+    checkpoint_path = projects / "demo" / "checkpoint_script.json"
+    checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+    checkpoint["status"] = "awaiting_human"
+    checkpoint["human_approved"] = False
+    checkpoint_path.write_text(json.dumps(checkpoint), encoding="utf-8")
+
+    calls: list = []
+    driver = Driver("demo", "ep01", projects_dir=projects, profile="alpha",
+                    executor=ok_executor(calls))
+    with pytest.raises(ApiError) as raised:
+        driver.run(real=True, approve_live=True, budget_usd=5.0)
+
+    error = raised.value
+    assert error.context["stage"] == "script"
+    assert error.context["review_required"] is True
+    assert error.side_effects == "none"
+    assert calls == [], "generation started before the script review gate"
+
+
+def test_missing_script_artifact_stops_before_any_paid_call(projects, bindings):
+    (projects / "demo" / "ep01" / "artifacts" / "script.json").unlink()
+
+    calls: list = []
+    driver = Driver("demo", "ep01", projects_dir=projects, profile="alpha",
+                    executor=ok_executor(calls))
+    with pytest.raises(ApiError) as raised:
+        driver.run(real=True, approve_live=True, budget_usd=5.0)
+
+    error = raised.value
+    assert error.context["stage"] == "character_cast"
+    assert error.context["missing_artifacts"] == ["script"]
+    assert calls == []
+
+
+def test_two_shots_fan_out_to_two_keyframes_and_two_clips(projects, bindings):
+    seed_reviewed_artifacts(projects, shots=2)
+    calls: list = []
+
+    driver = Driver("demo", "ep01", projects_dir=projects, profile="alpha",
+                    executor=ok_executor(calls))
+    result = driver.run(real=True, approve_live=True, budget_usd=5.0)
+
+    keyframe_inputs = [
+        inputs for _tool, inputs in calls
+        if inputs["stage"] == "keyframe" and inputs["slot"] == "image_reference"
+    ]
+    shot_inputs = [
+        inputs for _tool, inputs in calls if inputs["stage"] == "shot_gen"
+    ]
+    assert len(keyframe_inputs) == 2
+    assert len(shot_inputs) == 2
+    assert [item["reference_image_path"] for item in shot_inputs] == [
+        "assets/keyframes/sh_000_v1.png",
+        "assets/keyframes/sh_001_v1.png",
+    ]
+    assert all("She turns away" in item["prompt"] for item in shot_inputs)
+    assert result["external_api_calls"] == len(calls)
 
 
 # ---------------------------------------------------------------------------

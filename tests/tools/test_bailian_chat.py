@@ -65,6 +65,26 @@ def test_route_table_covers_every_declared_task():
     assert set(TASK_ROUTES) == set(BailianChat.capabilities)
 
 
+def test_draft_route_uses_the_free_endpoint_model_with_prose_budget():
+    tool = BailianChat()
+    model, max_tokens = tool.resolve_route("draft")
+    assert model == "qwen3.7-plus"
+    assert max_tokens == 8192
+
+
+def test_draft_payload_is_a_plain_chat_completion(captured):
+    result = BailianChat().execute(
+        {"task": "draft", "prompt": "Write a 30-second two-hander.", "system": "You write short drama."}
+    )
+
+    assert result.success is True
+    payload = captured[0]["json"]
+    assert payload["model"] == "qwen3.7-plus"
+    assert payload["max_tokens"] == 8192
+    assert payload["messages"][0] == {"role": "system", "content": "You write short drama."}
+    assert payload["messages"][1]["content"] == "Write a 30-second two-hander."
+
+
 def test_reasoning_floor_is_applied_to_small_max_tokens():
     tool = BailianChat()
     model, max_tokens = tool.resolve_route("translate", 16)

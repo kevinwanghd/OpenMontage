@@ -58,9 +58,11 @@ bindings:
 
   music:
     chain:
+      # music_gen is an ElevenLabs API tool; declaring it local made the
+      # budget gate under-count a paid call (NFR-01).
       - tool: music_gen
-        provider: local
-        tier: local
+        provider: elevenlabs
+        tier: paid
         operations: [music]
 
   compose:
@@ -86,7 +88,7 @@ bindings:
       - tool: bailian_chat
         provider: bailian
         tier: free
-        operations: [translate, classify, summarize, extract, vision]
+        operations: [translate, classify, summarize, extract, vision, draft]
 
   upscale:
     chain:

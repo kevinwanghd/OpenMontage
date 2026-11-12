@@ -16,7 +16,7 @@
 
 ```
 usage: om [-h] [--projects-dir PROJECTS_DIR] [--bindings-dir BINDINGS_DIR]
-          [--verbose] {review,doctor,profile,demo} ...
+          [--verbose] {review,doctor,profile,demo,serve} ...
 ```
 
 | 选项 | 作用 | 默认 |
@@ -53,7 +53,23 @@ om doctor           [--profile PROFILE] [--json]
 om profile list     [--json]
 om profile use      name [--yes] [--json]
 om demo             [--mock] [--json]
+om demo             --real --approve-live --budget-usd BUDGET [--profile PROFILE] [--json]
+om serve            [--host HOST] [--port PORT] [--allow-remote] [--auth-token TOKEN]
+                    [--projects-dir PROJECTS_DIR] [--json]
 ```
+
+### `om serve`
+
+同源启动 §10 API 与静态审核台（UI-11）：`http://127.0.0.1:8765/review-console/`。
+只监听 loopback；`--allow-remote` 必须同时给 `--auth-token`（UI-02）。
+`om serve` 是长驻进程，Ctrl+C 退出（退出码 130）。
+
+### `om demo --real` 的人工前置条件
+
+`--real` 只负责生成阶段。创作阶段（idea/beat_map/script/scene_plan）由
+director skill 产出 artifact 后，必须已有 **completed + human_approved**
+checkpoint；否则驱动在任何付费调用之前暂停（`BATCH_PRECONDITION_FAILED`，
+`context.review_required=true`）。这就是"先审剧本和脚本、再生成"的门。
 
 ---
 

@@ -316,6 +316,12 @@ entries:
     verified_at: "2026-11-12"
     verification_status: VERIFIED
     commercial_rights: "official Alibaba Bailian API"
+  - model: bailian/qwen3.7-plus
+    operation: draft
+    source: "tools/text/bailian_chat.py"
+    verified_at: "2026-11-12"
+    verification_status: VERIFIED
+    commercial_rights: "official Alibaba Bailian API"
   - model: bailian/qwen3.8-max-0902
     operation: extract
     source: "tools/text/bailian_chat.py"

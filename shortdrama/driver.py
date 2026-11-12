@@ -26,12 +26,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional
 
 from lib import capability_slots as slots
-from lib.checkpoint import PROJECTS_DIR
+from lib.checkpoint import PROJECTS_DIR, read_checkpoint
 from lib.decision_log import DecisionEntry, DecisionLog
 from lib.pipeline_loader import (
     get_stage_order,
@@ -44,9 +45,25 @@ from lib.submission_ledger import (
     LedgerError,
     SubmissionLedger,
 )
+from shortdrama import content
+from shortdrama.content import ContentError, WorkItem
 from shortdrama.errors import ApiError, ErrorCode
 
 PIPELINE_NAME = "short-drama"
+
+#: File extensions per slot for the driver-assigned output path.
+_OUTPUT_EXTENSIONS = {
+    "image_character_key": ".png",
+    "image_reference": ".png",
+    "video_primary": ".mp4",
+    "lipsync": ".mp4",
+    "tts_voice": ".mp3",
+    "music": ".mp3",
+    "subtitle": ".srt",
+    "compose": ".mp4",
+    "upscale": ".mp4",
+    "text_llm": ".json",
+}
 
 #: REV-06 caps retries at three, so the worst-case single call is four attempts.
 DEFAULT_RETRIES = 3
@@ -101,6 +118,7 @@ class Driver:
         self.manifest = load_pipeline_readonly(PIPELINE_NAME)
         self.stage_order = get_stage_order(self.manifest)
         self._budget_usd: Optional[float] = None
+        self._artifacts_cache: Optional[dict[str, dict[str, Any]]] = None
 
     # ------------------------------------------------------------------
     # Stage / slot plan (never provider names)
@@ -238,6 +256,7 @@ class Driver:
                 "skill": get_stage_skill(self.manifest, stage),
                 "slots": [],
             }
+            self._preflight_stage(stage)
             for slot in self.stage_slots(stage):
                 stage_entry["slots"].append(self._run_slot(ledger, stage, slot))
             stage_entry["executed"] = any(
@@ -272,6 +291,126 @@ class Driver:
             context={"missing": missing, "requested_real": True},
             exit_code=2,
         )
+
+    # ------------------------------------------------------------------
+    # Review gates + content chain (M1)
+    # ------------------------------------------------------------------
+
+    def _stage_decl(self, stage: str) -> dict[str, Any]:
+        for declared in self.manifest["stages"]:
+            if declared.get("name") == stage:
+                return declared
+        return {}
+
+    def _artifacts(self) -> dict[str, dict[str, Any]]:
+        if self._artifacts_cache is None:
+            names = (
+                "brief",
+                "beat_map",
+                "script",
+                "character_design",
+                "drama_character",
+                "scene_plan",
+                "asset_manifest",
+                "edit_decisions",
+                "render_report",
+            )
+            try:
+                self._artifacts_cache = content.load_artifacts(
+                    self.projects_dir, self.project, self.episode, names
+                )
+            except ContentError as exc:
+                raise self._pause(
+                    ErrorCode.BATCH_PRECONDITION_FAILED,
+                    f"cannot read project artifacts: {exc}",
+                    "repair the artifact JSON, then re-run",
+                    recovery="do-X-first",
+                    context={"project": self.project, "episode": self.episode},
+                ) from exc
+        return self._artifacts_cache
+
+    def _preflight_stage(self, stage: str) -> None:
+        """Fail before spending: artifacts exist and creative review is done.
+
+        Stages without slots are agent-authored (idea/beat_map/script/
+        scene_plan). They cannot be "executed" by the driver, so they must
+        already carry a completed, human-approved checkpoint -- this is the
+        gate that makes script and scene-plan review mandatory before any
+        paid generation call.
+        """
+        declared = self._stage_decl(stage)
+        required = [str(name) for name in declared.get("required_artifacts_in") or []]
+        missing = content.missing_artifacts(
+            self.projects_dir, self.project, self.episode, required
+        )
+        if missing:
+            artifacts_dir = content.episode_artifacts_dir(
+                self.projects_dir, self.project, self.episode
+            )
+            raise self._pause(
+                ErrorCode.BATCH_PRECONDITION_FAILED,
+                f"stage '{stage}' requires artifact(s) {missing} before any paid call",
+                f"produce them with the {get_stage_skill(self.manifest, stage)} "
+                f"director skill under {artifacts_dir}/<name>.json, then re-run",
+                recovery="do-X-first",
+                context={
+                    "stage": stage,
+                    "missing_artifacts": missing,
+                    "artifacts_dir": str(artifacts_dir),
+                },
+            )
+        if self.stage_slots(stage):
+            return
+
+        checkpoint = read_checkpoint(self.projects_dir, self.project, stage)
+        approved = bool(
+            checkpoint
+            and checkpoint.get("status") == "completed"
+            and checkpoint.get("human_approved")
+        )
+        if approved:
+            return
+        state = (
+            "missing"
+            if checkpoint is None
+            else f"{checkpoint.get('status')} "
+                 f"(human_approved={bool(checkpoint.get('human_approved'))})"
+        )
+        raise self._pause(
+            ErrorCode.BATCH_PRECONDITION_FAILED,
+            f"stage '{stage}' is agent-authored and has no approved checkpoint "
+            f"({state}); paid generation must wait for human review",
+            f"produce the artifact with the {get_stage_skill(self.manifest, stage)} "
+            f"director skill, present it to the user, then write checkpoint_{stage}.json "
+            "with status='completed', human_approved=True and re-run",
+            recovery="ask-human",
+            side_effects="none",
+            context={
+                "stage": stage,
+                "checkpoint": state,
+                "review_required": True,
+            },
+        )
+
+    def _slot_items(self, stage: str, slot: str) -> list[WorkItem]:
+        try:
+            return content.build_work_items(
+                stage,
+                slot,
+                self._artifacts(),
+                projects_dir=self.projects_dir,
+                project=self.project,
+                episode=self.episode,
+            )
+        except ContentError as exc:
+            raise self._pause(
+                ErrorCode.BATCH_PRECONDITION_FAILED,
+                f"no usable content for stage '{stage}' slot '{slot}': {exc}",
+                "produce or repair the upstream artifact with its director skill, "
+                "then re-run",
+                recovery="do-X-first",
+                context={"stage": stage, "slot": slot},
+            ) from exc
 
     # ------------------------------------------------------------------
     # Budget gate + ledger (NFR-01 / ORC-03)
@@ -323,23 +462,102 @@ class Driver:
                 },
             )
 
+        work_items = self._slot_items(stage, slot)
+        if not work_items:
+            raise self._pause(
+                ErrorCode.BATCH_PRECONDITION_FAILED,
+                f"no work items for stage '{stage}' slot '{slot}'",
+                "produce the upstream artifact content, then re-run",
+                recovery="do-X-first",
+                side_effects="none",
+                context={"stage": stage, "slot": slot, "tool": tool},
+            )
+
+        results = [
+            self._run_item(ledger, stage, slot, tool, row, work_item)
+            for work_item in work_items
+        ]
+        executed = [result for result in results if result.get("executed")]
+        item.update(
+            {
+                "executed": bool(executed),
+                "items": results,
+                "item_count": len(results),
+                "estimated_cny": round(
+                    sum(float(result.get("estimated_cny") or 0.0) for result in results),
+                    4,
+                ),
+                "worst_case_usd": round(
+                    sum(float(result.get("worst_case_usd") or 0.0) for result in results),
+                    6,
+                ),
+                "ledger_entry_id": next(
+                    (result.get("ledger_entry_id") for result in results), None
+                ),
+                "ledger_entry_ids": [
+                    result.get("ledger_entry_id") for result in results
+                ],
+                "task_id": next(
+                    (result.get("task_id") for result in results if result.get("task_id")),
+                    None,
+                ),
+                "billing_state": (
+                    "billed"
+                    if any(result.get("billing_state") == "billed" for result in results)
+                    else "free"
+                ),
+                "artifacts": [
+                    artifact
+                    for result in results
+                    for artifact in result.get("artifacts") or []
+                ],
+            }
+        )
+        return item
+
+    def _run_item(
+        self,
+        ledger: SubmissionLedger,
+        stage: str,
+        slot: str,
+        tool: str,
+        row: dict[str, Any],
+        work_item: WorkItem,
+    ) -> dict[str, Any]:
+        """One budget-gated provider call for one content work item."""
+        item: dict[str, Any] = {
+            "item_id": work_item.item_id,
+            "resolved": True,
+            "tool": tool,
+            "executed": False,
+        }
         worst_cny = float(row.get("estimated_cny") or 0.0) * (1 + self.retries)
         worst_usd = round(worst_cny / self.cny_per_usd, 6)
         item["estimated_cny"] = round(float(row.get("estimated_cny") or 0.0), 4)
         item["worst_case_usd"] = worst_usd
 
         entry = self._reserve(
-            ledger, stage, slot, tool, row, worst_cny=worst_cny, worst_usd=worst_usd
+            ledger,
+            stage,
+            slot,
+            tool,
+            row,
+            worst_cny=worst_cny,
+            worst_usd=worst_usd,
+            work_item=work_item,
         )
         item["ledger_entry_id"] = entry["entry_id"]
 
         try:
-            raw = self._executor(tool, self._slot_inputs(stage, slot, tool, row))
+            raw = self._executor(
+                tool, self._slot_inputs(stage, slot, tool, row, work_item)
+            )
         except Exception as exc:  # provider call failed; billing identity unknown
             ledger.mark_submitted(entry["entry_id"], None)
             raise self._pause(
                 ErrorCode.INTERNAL_ERROR,
-                f"{tool} failed at stage '{stage}' slot '{slot}': {exc}",
+                f"{tool} failed at stage '{stage}' slot '{slot}' "
+                f"item '{work_item.item_id}': {exc}",
                 "reconcile the ledger entry with the provider (resume mode=reconcile) "
                 "before retrying; do not re-pay blindly",
                 recovery="ask-human",
@@ -348,6 +566,7 @@ class Driver:
                     "stage": stage,
                     "slot": slot,
                     "tool": tool,
+                    "item_id": work_item.item_id,
                     "entry_id": entry["entry_id"],
                     "resume_mode": "reconcile",
                 },
@@ -361,7 +580,8 @@ class Driver:
             ledger.mark_submitted(entry["entry_id"], None)
             raise self._pause(
                 ErrorCode.INTERNAL_ERROR,
-                f"{tool} reported failure at stage '{stage}' slot '{slot}': "
+                f"{tool} reported failure at stage '{stage}' slot '{slot}' "
+                f"item '{work_item.item_id}': "
                 f"{payload.get('error') or 'no error detail'}",
                 "reconcile the ledger entry with the provider before retrying",
                 recovery="ask-human",
@@ -370,6 +590,7 @@ class Driver:
                     "stage": stage,
                     "slot": slot,
                     "tool": tool,
+                    "item_id": work_item.item_id,
                     "entry_id": entry["entry_id"],
                     "resume_mode": "reconcile",
                 },
@@ -380,8 +601,8 @@ class Driver:
             ledger.mark_submitted(entry["entry_id"], None)
             raise self._pause(
                 ErrorCode.INTERNAL_ERROR,
-                f"{tool} completed at stage '{stage}' slot '{slot}' without a task id; "
-                "billing state is UNKNOWN",
+                f"{tool} completed at stage '{stage}' slot '{slot}' "
+                f"item '{work_item.item_id}' without a task id; billing state is UNKNOWN",
                 "reconcile the ledger entry with the provider (resume mode=reconcile) "
                 "before any re-submission",
                 recovery="ask-human",
@@ -390,6 +611,7 @@ class Driver:
                     "stage": stage,
                     "slot": slot,
                     "tool": tool,
+                    "item_id": work_item.item_id,
                     "entry_id": entry["entry_id"],
                     "resume_mode": "reconcile",
                 },
@@ -420,10 +642,11 @@ class Driver:
         *,
         worst_cny: float,
         worst_usd: float,
+        work_item: Optional[WorkItem] = None,
     ) -> dict[str, Any]:
         """Atomic spent+reserved+this-call check, then intent, under one lock."""
         provider = str(row.get("provider") or tool)
-        input_hash = self._input_hash(stage, slot, tool)
+        input_hash = self._input_hash(stage, slot, tool, work_item)
         budget = float(self._budget_usd or 0.0)
 
         # ORC-10: the ledger's class-wide (re-entrant) lock makes the read of
@@ -689,7 +912,15 @@ class Driver:
             context=context,
         )
 
-    def _input_hash(self, stage: str, slot: str, tool: str) -> str:
+    def _input_hash(
+        self, stage: str, slot: str, tool: str, work_item: Optional[WorkItem] = None
+    ) -> str:
+        """Content is part of the identity: a changed prompt is a new work unit.
+
+        ORC-03 only lets the ledger reuse an entry for the same verified input;
+        an orchestration-only hash would silently reuse an old paid asset after
+        the shot text or keyframe changed.
+        """
         payload = json.dumps(
             {
                 "version": "1.0",
@@ -699,10 +930,23 @@ class Driver:
                 "stage": stage,
                 "slot": slot,
                 "tool": tool,
+                "item_id": work_item.item_id if work_item else None,
+                "content": work_item.inputs if work_item else {},
             },
             sort_keys=True,
         )
         return _sha256(payload)
+
+    def _draft_resolution(self) -> str:
+        """Draft resolution declared by the active profile (DEL-01/F34)."""
+        try:
+            profile_data = slots.load_profile(self.profile or slots.active_profile())
+        except slots.CapabilitySlotsError:
+            return "480p"
+        delivery = profile_data.get("delivery") or {}
+        if isinstance(delivery, dict) and delivery.get("draft_resolution"):
+            return str(delivery["draft_resolution"])
+        return "480p"
 
     def _slot_inputs(
         self,
@@ -710,8 +954,9 @@ class Driver:
         slot: str,
         tool: str,
         row: dict[str, Any],
+        work_item: Optional[WorkItem] = None,
     ) -> dict[str, Any]:
-        return {
+        inputs: dict[str, Any] = {
             "project_id": self.project,
             "episode_id": self.episode,
             "stage": stage,
@@ -723,6 +968,20 @@ class Driver:
             "budget_usd": self._budget_usd,
             "approve_live": True,
         }
+        if work_item is not None:
+            inputs.update(work_item.inputs)
+            safe_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", work_item.item_id) or "item"
+            extension = _OUTPUT_EXTENSIONS.get(slot, ".bin")
+            inputs["output_path"] = str(
+                self.projects_dir
+                / self.project
+                / self.episode
+                / "assets"
+                / f"{stage}_{slot}_{safe_id}{extension}"
+            )
+        if slot == "video_primary" and not inputs.get("resolution"):
+            inputs["resolution"] = self._draft_resolution()
+        return inputs
 
     def _normalize_result(self, raw: Any) -> dict[str, Any]:
         if isinstance(raw, dict):

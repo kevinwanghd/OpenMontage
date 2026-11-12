@@ -40,6 +40,10 @@ TASK_ROUTES: dict[str, tuple[str, int]] = {
     "summarize": ("qwen3.7-plus", 1024),
     "extract": ("qwen3.8-max-0902", 2048),
     "vision": ("qwen3-vl-plus", 1024),
+    # Long-form English drafting (outline, dialogue, shot script). Same free
+    # endpoint and model as summarize; the higher token budget is for prose,
+    # not for reasoning headroom (the floor still applies).
+    "draft": ("qwen3.7-plus", 8192),
 }
 DEFAULT_ROUTE = ("qwen3.7-plus", 1024)
 MIN_MAX_TOKENS = 256
@@ -67,13 +71,14 @@ class BailianChat(BaseTool):
     )
     agent_skills = ["bailian"]
 
-    capabilities = ["translate", "classify", "summarize", "extract", "vision"]
+    capabilities = ["translate", "classify", "summarize", "extract", "vision", "draft"]
     best_for = [
         "bulk subtitle translation on the free quota",
         "asset/shot classification and tagging",
         "comment and script summarization",
         "structured extraction into JSON",
         "image captioning and shot understanding (qwen3-vl-plus)",
+        "English short-drama outline and dialogue drafting on the free quota",
     ]
     not_good_for = [
         "tasks needing a guaranteed non-reasoning model at tiny max_tokens",
@@ -86,7 +91,7 @@ class BailianChat(BaseTool):
         "properties": {
             "task": {
                 "type": "string",
-                "enum": ["translate", "classify", "summarize", "extract", "vision"],
+                "enum": ["translate", "classify", "summarize", "extract", "vision", "draft"],
                 "description": "Routes to the cheapest model that can do the job.",
             },
             "prompt": {"type": "string"},
