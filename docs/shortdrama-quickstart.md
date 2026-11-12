@@ -123,7 +123,30 @@ om demo --mock --json
    （`r_demo_hook`、`r_demo_reaction`）；
 3. 输出 `external_api_calls: 0`。
 
-> `om demo` **必须**带 `--mock`。M0 没有真实生成，缺失时返回退出码 `2`。
+> `om demo` 必须显式带 `--mock` 或 `--real`，两者缺失或同时给出都返回退出码 `2`。
+
+### 2.1 真实驱动（`om demo --real`，需显式批准 + 预算）
+
+`--real` 按 `pipeline_defs/short-drama.yaml` 的 9 个 stage 顺序驱动，工具经
+`bindings/` 的 profile 槽位解析（改 profile 不改编排）。它默认拒绝执行，必须同时给出
+**真人批准**和**正数预算**：
+
+```powershell
+om demo --real --approve-live --budget-usd 5 --json
+```
+
+- 任缺其一（或 `--budget-usd` 非正数）→ `VALIDATION_ERROR`，
+  `recovery: do-X-first`、`side_effects: none`，不会写 ledger、不会调用任何 provider。
+- 每次付费调用前先做原子预算检查（已花 + 已预留 + 本次最坏估算，含最多 3 次重试），
+  再向 `SubmissionLedger` 写 submission intent；价格未知或超限会暂停并返回
+  `BUDGET_EXCEEDED`（退出码 `5`），不会盲花。
+- 提交后未拿到 task id 就失败 → ledger 记为 `unknown`，下次运行 `resume_plan` 返回
+  `reconcile`，**禁止自动重复付费**，须先人工/查单对账。
+- 声明的降级路径（如无原生口型 → TTS + lipsync + mux、480P → 1080P upscale）和
+  provider 回退会在执行前写入 `projects/<project>/decision_log.jsonl`（NFR-06），
+  不会静默替换。
+
+真实调用会产生费用与外部 API 请求；测试与 CI 一律只用 mock/假执行器。
 
 ---
 

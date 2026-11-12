@@ -47,6 +47,7 @@ from lib.review import (
     UnknownReviewError,
 )
 from shortdrama.api import ShortdramaService
+from shortdrama.driver import Driver
 from shortdrama.errors import ApiError, ErrorCode, classify_review_rejection
 from shortdrama.models import (
     BatchRequest,
@@ -678,7 +679,51 @@ def _cmd_profile_use(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_demo_real(args: argparse.Namespace) -> int:
+    """Drive all nine stages for real — only behind explicit consent + budget."""
+    service = _service(args)
+    driver = Driver(
+        "demo",
+        "ep01",
+        projects_dir=service.projects_dir,
+        profile=args.profile or "",
+    )
+    result = driver.run(
+        real=True,
+        approve_live=args.approve_live,
+        budget_usd=args.budget_usd,
+    )
+    if args.json:
+        _write(result, True)
+    else:
+        _write(
+            {
+                "real": True,
+                "profile": result["profile"],
+                "stages": [
+                    {"stage": stage["stage"], "executed": stage["executed"],
+                     "slots": [item["slot"] for item in stage["slots"]]}
+                    for stage in result["stages"]
+                ],
+                "external_api_calls": result["external_api_calls"],
+                "budget": result["budget"],
+            },
+            False,
+        )
+    return 0
+
+
 def _cmd_demo(args: argparse.Namespace) -> int:
+    if getattr(args, "real", False):
+        if args.mock:
+            raise ApiError(
+                ErrorCode.VALIDATION_ERROR,
+                "`om demo` accepts either --mock or --real, not both",
+                "re-run with exactly one of --mock / --real",
+                recovery="fix-then-retry",
+                exit_code=2,
+            )
+        return _cmd_demo_real(args)
     if not args.mock:
         raise ApiError(
             ErrorCode.VALIDATION_ERROR,
@@ -866,8 +911,17 @@ def build_parser() -> argparse.ArgumentParser:
     _add_json(p)
     p.set_defaults(func=_cmd_profile_use)
 
-    p = commands.add_parser("demo", help="seed a mock episode (NFR-12 hello-world)")
-    p.add_argument("--mock", action="store_true", help="required in M0: zero external API")
+    p = commands.add_parser("demo", help="seed a mock episode or drive the 9-stage pipeline")
+    p.add_argument("--mock", action="store_true",
+                   help="seed a local episode: zero external API (default hello-world)")
+    p.add_argument("--real", action="store_true",
+                   help="drive all nine stages for real (requires --approve-live and --budget-usd)")
+    p.add_argument("--approve-live", action="store_true",
+                   help="explicit consent to make paid provider calls in --real mode")
+    p.add_argument("--budget-usd", type=float, default=None,
+                   help="hard cash budget in USD for the --real run")
+    p.add_argument("--profile", default=None,
+                   help="binding profile for --real (default: active profile)")
     _add_json(p)
     p.set_defaults(func=_cmd_demo)
 
