@@ -152,6 +152,10 @@ class DashscopeVideo(BaseTool):
                 "type": "string",
                 "description": "Local image path, sent as a base64 data URI.",
             },
+            "audio_path": {
+                "type": "string",
+                "description": "Local dialogue/audio track (mp3) sent as a data URI; wan3.0 drives mouth shapes from it.",
+            },
             "ratio": {
                 "type": "string",
                 "enum": ["16:9", "9:16", "1:1", "4:3", "3:4"],
@@ -244,6 +248,7 @@ class DashscopeVideo(BaseTool):
                 raise ValueError("duration_seconds must be positive")
 
             image_url = self._image_reference(inputs)
+            audio_url = self._audio_reference(inputs)
             models = [inputs.get("model") or MODEL_ID]
             models.extend(str(m) for m in inputs.get("fallback_models") or [])
             payloads = [
@@ -259,6 +264,7 @@ class DashscopeVideo(BaseTool):
                     prompt_extend=inputs.get("prompt_extend", True),
                     watermark=inputs.get("watermark", False),
                     ratio=ratio,
+                    audio_url=audio_url,
                 )
                 for model in models
             ]
@@ -447,6 +453,17 @@ class DashscopeVideo(BaseTool):
     @staticmethod
     def _safe_error(exc: Exception) -> str:
         return str(exc).replace(os.environ.get("DASHSCOPE_API_KEY", ""), "[redacted]")
+
+    def _audio_reference(self, inputs: dict[str, Any]) -> Optional[str]:
+        """Local audio path -> data URI (wan3.0 wins for dialogue shots)."""
+        audio_url = inputs.get("audio_url")
+        if audio_url:
+            return str(audio_url)
+        path = inputs.get("audio_path")
+        if not path:
+            return None
+        data = Path(path).read_bytes()
+        return "data:audio/mpeg;base64," + base64.b64encode(data).decode("ascii")
 
     @staticmethod
     def _is_quota_error(exc: Exception) -> bool:

@@ -122,6 +122,7 @@ def build_request_payload(
     prompt_extend: bool = True,
     watermark: bool = False,
     ratio: Optional[str] = None,
+    audio_url: Optional[str] = None,
 ) -> dict[str, Any]:
     """Map tool inputs onto the DashScope async video-synthesis payload.
 
@@ -181,6 +182,11 @@ def build_request_payload(
             parameters.pop("ratio", None)
     elif image_url:
         video_input["img_url"] = image_url
+
+    if audio_url and not model.startswith("wan2.7") and not model.startswith("happyhorse"):
+        # wan3.0 speaks the supplied track: mouth shapes follow the audio,
+        # which is what turns a silent shot into on-screen dialogue.
+        video_input["audio_url"] = audio_url
 
     return {"model": model, "input": video_input, "parameters": parameters}
 

@@ -543,3 +543,21 @@ def test_capability_slots_loader_aggregates_the_fragment():
     assert "480p" in i2v["output_resolutions"]
     assert i2v["first_frame_conditioning"] is True
     assert i2v["verification_status"] == "VERIFIED"
+
+def test_wan30_audio_url_drives_lipsync_payload():
+    payload = build_request_payload(
+        "she speaks", operation="first_frame", model="wan3.0-video",
+        image_url="data:image/png;base64,AA", audio_url="data:audio/mpeg;base64,BB",
+        resolution="720p", duration_seconds=3, ratio="9:16",
+    )
+    assert payload["input"]["audio_url"] == "data:audio/mpeg;base64,BB"
+    assert payload["input"]["img_url"].startswith("data:image/png")
+
+
+def test_audio_url_is_not_sent_to_models_without_audio():
+    payload = build_request_payload(
+        "she speaks", operation="first_frame", model="happyhorse-1.1-i2v",
+        image_url="data:image/png;base64,AA", audio_url="data:audio/mpeg;base64,BB",
+        resolution="720p", duration_seconds=3,
+    )
+    assert "audio_url" not in payload["input"]
