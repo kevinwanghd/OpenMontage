@@ -299,6 +299,9 @@ def _shot_items(
                     "operation": "first_frame",
                     "reference_image_path": keyframe,
                     "duration_seconds": duration,
+                    # Short drama is always vertical; the provider needs an
+                    # explicit ratio (the deprecated size field is ignored).
+                    "ratio": "9:16",
                 },
             )
         )

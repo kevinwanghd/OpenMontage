@@ -14,9 +14,9 @@ version: "1.0"
 entries:
   - model: dashscope/qwen-image-2.0-pro
     operation: text_to_image
-    source: "tools/graphics/dashscope_image.py contract snapshot 2026-11-12"
-    verified_at: null
-    verification_status: UNVERIFIED
+    source: "M1 live probe 2026-11-13: qwen-image-2.0-pro generated a 1152x2048 PNG in one paid call ($0.02)"
+    verified_at: "2026-11-13"
+    verification_status: VERIFIED
     commercial_rights: "Bailian ToS; commercial terms re-checked before paid delivery"
   - model: dashscope/qwen-image-2.0-pro
     operation: image_edit

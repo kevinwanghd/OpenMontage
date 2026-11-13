@@ -299,9 +299,9 @@ def test_tiktok_draft_video_primary_is_official_dashscope():
         assert entry is not None
         assert entry["verification_status"] == "UNVERIFIED"
 
-    # The mock-first dashscope tool must never be reported as verified yet.
+    # Live probe 2026-11-13 measured 480P portrait i2v; the entry is VERIFIED.
     video_entry = cs.catalog_entry("dashscope/wan3.0-video", "image_to_video")
-    assert video_entry["verification_status"] == "MOCKED"
+    assert video_entry["verification_status"] == "VERIFIED"
 
 
 def test_membership_gateways_are_optional_not_primary():
@@ -331,7 +331,7 @@ def test_image_slots_prefer_official_dashscope_image():
 
     entry = cs.catalog_entry("dashscope/qwen-image-2.0-pro", "text_to_image")
     assert entry is not None
-    assert entry["verification_status"] == "UNVERIFIED"
+    assert entry["verification_status"] == "VERIFIED"
 
 
 def _available(capabilities=None, install=""):
@@ -374,7 +374,7 @@ def test_tiktok_draft_resolves_official_dashscope_when_available(monkeypatch):
     caps = cs.supports("video_primary", "tiktok-draft")
     assert caps["tool"] == "dashscope_video"
     assert caps["provider"] == "dashscope"
-    assert caps["verification_status"] == "MOCKED"
+    assert caps["verification_status"] == "VERIFIED"
     assert caps["output_resolutions"] == ["480p"]
 
 
@@ -453,8 +453,8 @@ def test_doctor_without_credentials_is_blocked_and_reports_setup(monkeypatch):
     assert any(r["slot"] == "image_character_key" for r in setup)
 
 
-def test_doctor_mocked_dashscope_video_is_degraded_not_green(monkeypatch):
-    """MOCKED is not VERIFIED: the three-state verdict must stay honest."""
+def test_doctor_verified_dashscope_video_warns_only_about_upscale(monkeypatch):
+    """VERIFIED video removes CAPABILITY_UNVERIFIED; 480p draft still needs upscale."""
     _patch_real_profile_states(
         monkeypatch,
         {
@@ -472,7 +472,8 @@ def test_doctor_mocked_dashscope_video_is_degraded_not_green(monkeypatch):
     report = cs.doctor("tiktok-draft")
     assert report["status"] == "DEGRADED"
     video_reasons = [r for r in report["reasons"] if r["slot"] == "video_primary"]
-    assert any(r["code"] == "CAPABILITY_UNVERIFIED" for r in video_reasons)
+    assert not any(r["code"] == "CAPABILITY_UNVERIFIED" for r in video_reasons)
+    assert any(r["code"] == "DRAFT_UPSCALE_DECLARED" for r in video_reasons)
     assert not any("VERIFIED" == str(r.get("message", "")) for r in report["reasons"])
 
 

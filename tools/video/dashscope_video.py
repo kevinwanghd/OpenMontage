@@ -33,6 +33,7 @@ from tools._dashscope.wan_video_client import (
     build_request_payload,
     cny_price,
     normalize_operation,
+    normalize_ratio,
     normalize_resolution,
 )
 from tools.base_tool import (
@@ -140,6 +141,14 @@ class DashscopeVideo(BaseTool):
                 "type": "string",
                 "description": "Local image path, sent as a base64 data URI.",
             },
+            "ratio": {
+                "type": "string",
+                "enum": ["16:9", "9:16", "1:1", "4:3", "3:4"],
+                "description": (
+                    "Aspect ratio. wan3.0 replaced the deprecated size field with "
+                    "resolution + ratio; 480P + 9:16 yields a 480x854 portrait clip."
+                ),
+            },
             "negative_prompt": {"type": "string"},
             "seed": {"type": "integer", "minimum": 0},
             "prompt_extend": {"type": "boolean", "default": True},
@@ -166,6 +175,7 @@ class DashscopeVideo(BaseTool):
         "operation",
         "model",
         "resolution",
+        "ratio",
         "duration_seconds",
         "reference_image_url",
         "reference_image_path",
@@ -217,6 +227,7 @@ class DashscopeVideo(BaseTool):
             prompt = inputs["prompt"]
             operation = normalize_operation(inputs.get("operation"))
             resolution = normalize_resolution(inputs.get("resolution"))
+            ratio = normalize_ratio(inputs.get("ratio"))
             duration = float(inputs.get("duration_seconds", 5))
             if duration <= 0:
                 raise ValueError("duration_seconds must be positive")
@@ -233,6 +244,7 @@ class DashscopeVideo(BaseTool):
                 seed=inputs.get("seed"),
                 prompt_extend=inputs.get("prompt_extend", True),
                 watermark=inputs.get("watermark", False),
+                ratio=ratio,
             )
         except KeyError:
             return ToolResult(success=False, error="prompt is required")
@@ -280,6 +292,40 @@ class DashscopeVideo(BaseTool):
             )
 
         mode = getattr(transport, "mode", "mock")
+        output_path = inputs.get("output_path")
+        artifacts: list[str] = []
+        if mode == "live" and output_path:
+            # The paid clip exists only as a signed URL until it is downloaded;
+            # losing it here would bill the operator for an unusable asset.
+            try:
+                import requests
+
+                target = Path(output_path)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                response = requests.get(video_url, timeout=180)
+                response.raise_for_status()
+                target.write_bytes(response.content)
+                if target.stat().st_size == 0:
+                    raise IOError("downloaded clip is empty")
+                artifacts = [str(target)]
+            # risk:swallowed-exception reason:"下载失败不抛异常而是返回 success=False 并保留 task_id/video_url 供对账，避免已计费任务被当成崩溃丢失" owner:@kevinwanghd reviewed:2026-11-13
+            except Exception as exc:
+                return ToolResult(
+                    success=False,
+                    error=(
+                        "DashScope clip generated but download failed: "
+                        f"{self._safe_error(exc)}; task_id={task_id}"
+                    ),
+                    data={
+                        "task_id": task_id,
+                        "task_status": status,
+                        "video_url": video_url,
+                        "output_path": output_path,
+                    },
+                    cost_usd=self.estimate_cost(inputs),
+                    duration_seconds=round(time.time() - start, 2),
+                    model=payload["model"],
+                )
         return ToolResult(
             success=True,
             data={
@@ -287,6 +333,7 @@ class DashscopeVideo(BaseTool):
                 "model": payload["model"],
                 "operation": operation,
                 "resolution": resolution,
+                "ratio": ratio,
                 "duration_seconds": duration,
                 "mode": mode,
                 "verification_status": "MOCKED" if mode == "mock" else "UNVERIFIED",
@@ -300,10 +347,12 @@ class DashscopeVideo(BaseTool):
                     if call.get("action") == "fetch"
                 ),
                 "estimate_cny": self.estimate_cost_cny(inputs),
-                "output_path": inputs.get("output_path"),
+                "output_path": output_path,
+                "video_path": artifacts[0] if artifacts else None,
             },
-            # A mock URL is not downloadable media, so nothing is promised here.
-            artifacts=[],
+            # Mock URLs are not downloadable media; live clips are downloaded
+            # to output_path and returned as a local artifact.
+            artifacts=artifacts,
             cost_usd=self.estimate_cost(inputs),
             duration_seconds=round(time.time() - start, 2),
             seed=inputs.get("seed"),

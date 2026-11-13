@@ -40,6 +40,9 @@ SUPPORTED_OPERATIONS = ("text_to_video", "image_to_video")
 OPERATION_ALIASES = {"first_frame": "image_to_video"}
 
 SUPPORTED_RESOLUTIONS = ("480p", "720p", "1080p")
+# wan2.7/3.0 replaced the deprecated ``size`` field with resolution + ratio.
+# 480P + 9:16 was measured on 2026-11-13 to produce a 480x854 portrait clip.
+SUPPORTED_RATIOS = ("16:9", "9:16", "1:1", "4:3", "3:4")
 RESOLUTION_PRICES_CNY_PER_SECOND = {
     "480p": 0.30,
     "720p": 0.60,
@@ -82,6 +85,18 @@ def normalize_resolution(resolution: Optional[str]) -> str:
     return canonical
 
 
+def normalize_ratio(ratio: Optional[str]) -> Optional[str]:
+    """Return a canonical aspect ratio, or None to use the provider default."""
+    if ratio is None:
+        return None
+    value = str(ratio).strip()
+    if value not in SUPPORTED_RATIOS:
+        raise ValueError(
+            f"unsupported ratio {ratio!r}; expected {list(SUPPORTED_RATIOS)}"
+        )
+    return value
+
+
 def cny_price(resolution: str, duration_seconds: float) -> float:
     """Estimated CNY spend for one clip at the Bailian price sheet."""
     return (
@@ -102,6 +117,7 @@ def build_request_payload(
     seed: Optional[int] = None,
     prompt_extend: bool = True,
     watermark: bool = False,
+    ratio: Optional[str] = None,
 ) -> dict[str, Any]:
     """Map tool inputs onto the DashScope async video-synthesis payload.
 
@@ -126,6 +142,9 @@ def build_request_payload(
         "prompt_extend": bool(prompt_extend),
         "watermark": bool(watermark),
     }
+    canonical_ratio = normalize_ratio(ratio)
+    if canonical_ratio:
+        parameters["ratio"] = canonical_ratio
     if negative_prompt:
         parameters["negative_prompt"] = negative_prompt
     if seed is not None:

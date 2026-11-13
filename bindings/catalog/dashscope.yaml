@@ -24,9 +24,9 @@ entries:
     output_resolutions: ["480p", "720p", "1080p"]
     seed_control: true
     first_frame_conditioning: false
-    source: "Bailian price sheet 2026-11-11 (§13.1) + M0 mock contract"
-    verified_at: null
-    verification_status: MOCKED
+    source: "Bailian price sheet 2026-11-11 (§13.1) + M1 live probe 2026-11-13: 480P + ratio 9:16 -> 480x854, 2s/5s clips SUCCEEDED"
+    verified_at: "2026-11-13"
+    verification_status: VERIFIED
     commercial_rights: "Bailian ToS; commercial terms re-checked in M1 before paid delivery"
   - model: dashscope/wan3.0-video
     operation: image_to_video
@@ -43,7 +43,7 @@ entries:
     output_resolutions: ["480p", "720p", "1080p"]
     seed_control: true
     first_frame_conditioning: true
-    source: "M0 mock contract: input.img_url first frame (A2/F34); i2v capability measured in M1"
-    verified_at: null
-    verification_status: MOCKED
+    source: "M1 live probe 2026-11-13: input.img_url first frame, 480P + ratio 9:16 -> 480x854 portrait, task SUCCEEDED"
+    verified_at: "2026-11-13"
+    verification_status: VERIFIED
     commercial_rights: "Bailian ToS; commercial terms re-checked in M1 before paid delivery"

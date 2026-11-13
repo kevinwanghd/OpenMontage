@@ -31,6 +31,7 @@ from tools._dashscope.wan_video_client import (
     MockWanTransport,
     build_request_payload,
     normalize_operation,
+    normalize_ratio,
     normalize_resolution,
 )
 from tools.base_tool import (
@@ -444,12 +445,87 @@ def test_fragment_declares_480p_i2v_and_mocked_status():
     for entry in entries:
         assert entry["model"] == "dashscope/wan3.0-video"
         assert "480p" in entry["output_resolutions"]
-        assert entry["verification_status"] == "MOCKED"
+        assert entry["verification_status"] == "VERIFIED"
         assert entry["commercial_rights"]
 
     assert by_operation["image_to_video"]["first_frame_conditioning"] is True
     assert by_operation["image_to_video"]["reference_images_max"] == 1
     assert by_operation["text_to_video"]["first_frame_conditioning"] is False
+
+
+def test_ratio_is_sent_in_payload():
+    assert normalize_ratio("9:16") == "9:16"
+    payload = build_request_payload("x", resolution="480p", ratio="9:16")
+    assert payload["parameters"]["ratio"] == "9:16"
+    assert "size" not in payload["parameters"]
+
+
+def test_invalid_ratio_is_rejected():
+    with pytest.raises(ValueError, match="unsupported ratio"):
+        build_request_payload("x", ratio="2:1")
+    result = _run(DashscopeVideo(), prompt="x", ratio="2:1")
+    assert result.success is False
+    assert "ratio" in result.error
+
+
+class _FlatLiveTransport:
+    mode = "live"
+
+    def submit(self, payload):
+        return "task-1"
+
+    def fetch(self, task_id):
+        return {
+            "task_id": task_id,
+            "task_status": "SUCCEEDED",
+            "video_url": "https://example.invalid/video.mp4",
+        }
+
+
+def test_live_success_downloads_clip_to_output_path(tmp_path, monkeypatch):
+    import requests as _requests
+
+    class _Resp:
+        content = b"fake-mp4-bytes"
+
+        def raise_for_status(self):
+            return None
+
+    monkeypatch.setattr(_requests, "get", lambda *a, **k: _Resp())
+    out = tmp_path / "clip.mp4"
+    tool = DashscopeVideo()
+    monkeypatch.setattr(tool, "_transport", _FlatLiveTransport())
+    result = tool.execute({
+        "prompt": "x", "operation": "text_to_video", "resolution": "480p",
+        "ratio": "9:16", "duration_seconds": 2, "output_path": str(out),
+        "poll_interval_seconds": 0,
+    })
+    assert result.success is True
+    assert out.read_bytes() == b"fake-mp4-bytes"
+    assert result.artifacts == [str(out)]
+    assert result.data["video_path"] == str(out)
+    assert result.data["ratio"] == "9:16"
+
+
+def test_live_download_failure_keeps_task_id_for_reconciliation(tmp_path, monkeypatch):
+    import requests as _requests
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("oss down")
+
+    monkeypatch.setattr(_requests, "get", boom)
+    out = tmp_path / "clip.mp4"
+    tool = DashscopeVideo()
+    monkeypatch.setattr(tool, "_transport", _FlatLiveTransport())
+    result = tool.execute({
+        "prompt": "x", "operation": "text_to_video", "resolution": "480p",
+        "duration_seconds": 2, "output_path": str(out),
+        "poll_interval_seconds": 0,
+    })
+    assert result.success is False
+    assert "task-1" in result.error
+    assert result.data["video_url"].endswith("video.mp4")
+    assert result.cost_usd > 0
 
 
 def test_capability_slots_loader_aggregates_the_fragment():
@@ -462,4 +538,4 @@ def test_capability_slots_loader_aggregates_the_fragment():
     assert t2v is not None and i2v is not None
     assert "480p" in i2v["output_resolutions"]
     assert i2v["first_frame_conditioning"] is True
-    assert i2v["verification_status"] == "MOCKED"
+    assert i2v["verification_status"] == "VERIFIED"
