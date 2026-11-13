@@ -275,15 +275,35 @@ def _keyframe_items(
 
 
 def _shot_items(
-    scene_plan: dict[str, Any], asset_manifest: Optional[dict[str, Any]]
+    scene_plan: dict[str, Any],
+    asset_manifest: Optional[dict[str, Any]],
+    *,
+    keyframes_required: bool = True,
+    characters: Optional[dict[str, dict[str, Any]]] = None,
 ) -> list[WorkItem]:
-    keyframes = _approved_keyframes(asset_manifest)
+    keyframes = _approved_keyframes(asset_manifest) if keyframes_required else {}
     items: list[WorkItem] = []
     missing: list[str] = []
     shot_ids = [_shot_id(shot) for shot in _shots(scene_plan)]
     for shot in _shots(scene_plan):
         shot_id = _shot_id(shot)
         keyframe = keyframes.get(shot_id)
+        if not keyframes_required:
+            duration = max(1.0, min(10.0, float(shot.get("duration_s") or 5.0)))
+            items.append(
+                WorkItem(
+                    shot_id,
+                    {
+                        # Declared fallback: no approved keyframe (image slot
+                        # blocked), so the shot is animated straight from text.
+                        "prompt": _shot_prompt(shot, characters or {}),
+                        "operation": "text_to_video",
+                        "duration_seconds": duration,
+                        "ratio": "9:16",
+                    },
+                )
+            )
+            continue
         if not keyframe:
             missing.append(shot_id)
             continue
@@ -347,6 +367,7 @@ def build_work_items(
     projects_dir: Optional[Path] = None,
     project: str = "",
     episode: str = "",
+    keyframes_required: bool = True,
 ) -> list[WorkItem]:
     """Build the ordered work items for one stage/slot pair.
 
@@ -367,7 +388,12 @@ def build_work_items(
         scene_plan = artifacts.get("scene_plan")
         if not scene_plan:
             raise ContentError("shot_gen requires the scene_plan artifact")
-        return _shot_items(scene_plan, artifacts.get("asset_manifest"))
+        return _shot_items(
+            scene_plan,
+            artifacts.get("asset_manifest"),
+            keyframes_required=keyframes_required,
+            characters=_character_cards(projects_dir or Path("."), project, episode, artifacts),
+        )
     if slot == "tts_voice":
         script = artifacts.get("script")
         if not script:

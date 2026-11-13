@@ -890,3 +890,20 @@ def test_ledger_reconcile_refuses_non_unknown_entries(projects, bindings, capsys
     ])
     assert code == 2
     assert json.loads(capsys.readouterr().err)["code"] == ErrorCode.VALIDATION_ERROR.value
+
+
+def test_start_at_shot_gen_without_keyframes_uses_text_to_video(projects, bindings):
+    (projects / "demo" / "ep01" / "artifacts" / "asset_manifest.json").unlink()
+    _approved_checkpoint(projects, "character_cast", {})
+    _approved_checkpoint(projects, "keyframe", {})
+
+    calls: list = []
+    driver = Driver("demo", "ep01", projects_dir=projects, profile="alpha",
+                    executor=ok_executor(calls), keyframes_required=False)
+    result = driver.run(real=True, approve_live=True, budget_usd=5.0,
+                        pause_for_review=True, start_at="shot_gen")
+
+    assert result["waiting_for"] == "shot_gen"
+    assert [inputs["stage"] for _, inputs in calls] == ["shot_gen"]
+    assert calls[0][1]["operation"] == "text_to_video"
+    assert calls[0][1]["ratio"] == "9:16"

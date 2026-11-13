@@ -106,6 +106,7 @@ class Driver:
         cny_per_usd: float = DEFAULT_CNY_PER_USD,
         currency: str = "USD",
         clip_duration_s: float = 5.0,
+        keyframes_required: bool = True,
     ) -> None:
         self.project = project
         self.episode = episode
@@ -115,6 +116,10 @@ class Driver:
         self.cny_per_usd = float(cny_per_usd)
         self.currency = currency
         self.clip_duration_s = float(clip_duration_s)
+        # Declared fallback for a blocked image slot: animate from the shot
+        # text instead of a reviewed keyframe. Quality differs; the run JSON
+        # records it so the operator never mistakes it for the normal path.
+        self.keyframes_required = bool(keyframes_required)
         self._executor = executor or self._registry_executor
         self.executed = 0
         self.manifest = load_pipeline_readonly(PIPELINE_NAME)
@@ -207,6 +212,7 @@ class Driver:
         budget_usd: Optional[float] = None,
         pause_for_review: bool = False,
         stop_after: Optional[str] = None,
+        start_at: Optional[str] = None,
     ) -> dict[str, Any]:
         """Run all nine stages; mock by default, live only with explicit consent.
 
@@ -258,7 +264,17 @@ class Driver:
             )
 
         start = 0
-        if resume["stage"] in self.stage_order:
+        if start_at:
+            if start_at not in self.stage_order:
+                raise ApiError(
+                    ErrorCode.VALIDATION_ERROR,
+                    f"start_at stage {start_at!r} is not in this pipeline",
+                    f"choose one of {self.stage_order}",
+                    recovery="fix-then-retry",
+                    exit_code=2,
+                )
+            start = self.stage_order.index(start_at)
+        elif resume["stage"] in self.stage_order:
             start = self.stage_order.index(resume["stage"])
         elif resume["stage"] is None:
             result["status"] = "already-complete"
@@ -381,6 +397,8 @@ class Driver:
         """
         declared = self._stage_decl(stage)
         required = [str(name) for name in declared.get("required_artifacts_in") or []]
+        if not self.keyframes_required and stage == "shot_gen":
+            required = [name for name in required if name != "asset_manifest"]
         missing = content.missing_artifacts(
             self.projects_dir, self.project, self.episode, required
         )
@@ -442,6 +460,7 @@ class Driver:
                 projects_dir=self.projects_dir,
                 project=self.project,
                 episode=self.episode,
+                keyframes_required=self.keyframes_required,
             )
         except ContentError as exc:
             raise self._pause(

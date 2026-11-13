@@ -723,6 +723,7 @@ def _cmd_demo_real(args: argparse.Namespace) -> int:
         getattr(args, "episode", None) or "ep01",
         projects_dir=service.projects_dir,
         profile=args.profile or "",
+        keyframes_required=not getattr(args, "without_keyframes", False),
     )
     result = driver.run(
         real=True,
@@ -730,7 +731,10 @@ def _cmd_demo_real(args: argparse.Namespace) -> int:
         budget_usd=args.budget_usd,
         pause_for_review=True,
         stop_after=getattr(args, "stop_after", None),
+        start_at=getattr(args, "start_at", None),
     )
+    if getattr(args, "without_keyframes", False):
+        result["keyframes_required"] = False
     if args.json:
         _write(result, True)
     else:
@@ -1069,6 +1073,11 @@ def build_parser() -> argparse.ArgumentParser:
                    help="episode id for --real (default: ep01)")
     p.add_argument("--stop-after", default=None,
                    help="stop after this stage instead of running all nine")
+    p.add_argument("--start-at", default=None,
+                   help="start at this stage, ignoring earlier checkpoints")
+    p.add_argument("--without-keyframes", action="store_true",
+                   help="declared fallback: animate shots from text when the "
+                        "image slot is blocked (no keyframe review)")
     _add_json(p)
     p.set_defaults(func=_cmd_demo)
 

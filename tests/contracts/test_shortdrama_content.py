@@ -252,3 +252,19 @@ def test_input_hash_changes_with_content():
         "shot_gen", "video_primary", "dashscope_video",
         WorkItem("sh_000", {"prompt": "She turns away"}),
     )
+
+def test_shot_gen_without_keyframes_animates_from_text():
+    """Declared fallback: no image slot -> text_to_video per shot, still 9:16."""
+    items = build_work_items(
+        "shot_gen",
+        "video_primary",
+        {"scene_plan": _scene_plan(2)},
+        keyframes_required=False,
+    )
+
+    assert [item.item_id for item in items] == ["sh_000", "sh_001"]
+    first = items[0].inputs
+    assert first["operation"] == "text_to_video"
+    assert "reference_image_path" not in first
+    assert first["ratio"] == "9:16"
+    assert "She turns away" in first["prompt"]
