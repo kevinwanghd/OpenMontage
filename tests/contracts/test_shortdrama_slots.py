@@ -318,18 +318,20 @@ def test_image_slots_prefer_official_dashscope_image():
     """Image slots also follow the official-first decision.
 
     dashscope_image is an official Bailian API tool already present in the
-    registry; the legacy fal.ai gateway remains only as a fallback. No live
-    measurement exists, so its catalog entry is UNVERIFIED.
+    registry; the legacy fal.ai gateway remains only as a fallback. The primary
+    is wan2.7-image: it is the only image model with live free quota on this
+    account (qwen-image-* is arrears-blocked).
     """
     data = cs.load_profile("tiktok-draft")
     for slot in ("image_character_key", "image_reference"):
         chain = data["bindings"][slot]["chain"]
         assert chain[0]["tool"] == "dashscope_image"
         assert chain[0]["provider"] == "dashscope"
-        assert chain[0]["catalog_model"] == "dashscope/qwen-image-2.0-pro"
+        assert chain[0]["catalog_model"] == "dashscope/wan2.7-image"
+        assert chain[0]["model"] == "wan2.7-image"
         assert chain[1]["tool"] == "bria_fal_image"
 
-    entry = cs.catalog_entry("dashscope/qwen-image-2.0-pro", "text_to_image")
+    entry = cs.catalog_entry("dashscope/wan2.7-image", "text_to_image")
     assert entry is not None
     assert entry["verification_status"] == "VERIFIED"
 

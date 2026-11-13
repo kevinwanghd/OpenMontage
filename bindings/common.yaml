@@ -18,9 +18,11 @@ bindings:
     chain:
       - tool: dashscope_image
         provider: dashscope
-        catalog_model: dashscope/qwen-image-2.0-pro
+        catalog_model: dashscope/wan2.7-image
+        model: wan2.7-image
         tier: paid
-        # Measured 2026-11-13: one 1152x2048 still billed $0.02 (~CNY 0.15).
+        # wan2.7-image is the model with a live free quota on this account
+        # (50 images, console 2026-11-13); qwen-image-* is arrears-blocked.
         cost_cny_per_run: 0.15
         operations: [text_to_image]
       - tool: bria_fal_image
@@ -34,10 +36,10 @@ bindings:
     chain:
       - tool: dashscope_image
         provider: dashscope
-        catalog_model: dashscope/qwen-image-2.0-pro
+        catalog_model: dashscope/wan2.7-image
+        model: wan2.7-image
         tier: paid
-        # Same measured price; the budget gate reserves one image per call, so
-        # a 2-candidate shot reserves 2x. Worst case is bounded by --budget-usd.
+        # Same free-quota model; the budget gate reserves one image per call.
         cost_cny_per_run: 0.15
         operations: [text_to_image]
       - tool: bria_fal_image

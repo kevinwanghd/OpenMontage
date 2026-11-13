@@ -949,3 +949,14 @@ def test_resuming_a_paused_stage_reuses_completed_items(projects, bindings):
     shot_gen = next(s for s in result["stages"] if s["stage"] == "shot_gen")
     assert shot_gen["slots"][0]["items"][0]["reused"] is True
     assert shot_gen["slots"][0]["items"][0]["artifacts"]
+
+
+def test_synchronous_tool_needs_no_task_id(projects, bindings, monkeypatch):
+    """Image APIs return their receipt inline; a missing task id is not UNKNOWN."""
+    driver = Driver("demo", "ep01", projects_dir=projects, profile="alpha",
+                    executor=ok_executor([]))
+    monkeypatch.setattr(driver, "_requires_task_id", lambda tool: False)
+    result = driver.run(real=True, approve_live=True, budget_usd=5.0,
+                        stop_after="shot_gen")
+    shot_gen = next(s for s in result["stages"] if s["stage"] == "shot_gen")
+    assert shot_gen["slots"][0]["items"][0]["billing_state"] in ("billed", "free")

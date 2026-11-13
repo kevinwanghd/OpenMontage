@@ -806,6 +806,10 @@ def _comparison_rows(
                 "tool": tool,
                 "provider": candidate.get("provider"),
                 "model": candidate.get("catalog_model"),
+                # Plain provider model name declared by the binding; distinct
+                # from the catalog id ("provider/model") that providers reject
+                # when it is passed as their model parameter.
+                "tool_model": candidate.get("model"),
                 "tier": candidate.get("tier"),
                 "chain_index": index,
                 # Candidates marked ``primary_eligible: false`` (membership

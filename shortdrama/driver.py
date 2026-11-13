@@ -655,7 +655,10 @@ class Driver:
 
         payload = self._normalize_result(raw)
         tier = str(row.get("tier") or "")
-        needs_task_id = tier not in _LOCAL_TIERS
+        # Only asynchronous submissions can leave billing unknown when a task
+        # id is missing; synchronous tools (image APIs) return their result and
+        # receipt inline, so requiring a task id would falsely block them.
+        needs_task_id = tier not in _LOCAL_TIERS and self._requires_task_id(tool)
 
         if not payload["success"]:
             ledger.mark_submitted(entry["entry_id"], None)
@@ -712,6 +715,18 @@ class Driver:
             }
         )
         return item
+
+    def _requires_task_id(self, tool: str) -> bool:
+        """Async tools prove billing by task id; sync tools do not have one."""
+        try:
+            from tools.tool_registry import registry
+
+            registry.ensure_discovered()
+            registered = registry.get(tool)
+        except Exception:
+            return True
+        mode = getattr(registered, "execution_mode", None)
+        return str(getattr(mode, "value", mode)).lower() == "async"
 
     def _already_produced(
         self,
@@ -1106,6 +1121,13 @@ class Driver:
             "slot": slot,
             "tool": tool,
             "profile": self.profile or slots.active_profile(),
+            # A catalog id (provider/model) is not a provider model name; only
+            # pass plain tool-level models declared by the binding itself.
+            **(
+                {"model": row["tool_model"]}
+                if row.get("tool_model")
+                else {}
+            ),
             "output_dir": str(self.projects_dir / self.project / self.episode / "assets"),
             "budget_usd": self._budget_usd,
             "approve_live": True,
