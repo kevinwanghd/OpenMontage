@@ -919,3 +919,33 @@ def test_driver_does_not_send_the_catalog_model_id_as_a_tool_input(projects, bin
     for _, inputs in calls:
         if "model" in inputs:
             assert "/" not in str(inputs["model"])
+
+
+def test_resuming_a_paused_stage_reuses_completed_items(projects, bindings):
+    """A half-done stage must not re-pay for items already on disk."""
+    calls: list = []
+
+    def writing_executor(tool: str, inputs: dict) -> dict:
+        calls.append((tool, inputs))
+        output = Path(inputs["output_path"])
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(b"fake-clip")
+        return {"success": True, "task_id": f"task-{len(calls)}", "cost_cny": 0.1,
+                "artifacts": [str(output)]}
+
+    Driver("demo", "ep01", projects_dir=projects, profile="alpha",
+           executor=writing_executor).run(
+        real=True, approve_live=True, budget_usd=5.0, start_at="shot_gen",
+        stop_after="shot_gen")
+    assert len(calls) == 1
+
+    def should_not_run(*_args, **_kwargs):
+        raise AssertionError("re-executed an item that already succeeded")
+
+    result = Driver("demo", "ep01", projects_dir=projects, profile="alpha",
+                    executor=should_not_run).run(
+        real=True, approve_live=True, budget_usd=5.0, start_at="shot_gen",
+        stop_after="shot_gen")
+    shot_gen = next(s for s in result["stages"] if s["stage"] == "shot_gen")
+    assert shot_gen["slots"][0]["items"][0]["reused"] is True
+    assert shot_gen["slots"][0]["items"][0]["artifacts"]

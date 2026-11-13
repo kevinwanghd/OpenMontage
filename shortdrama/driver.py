@@ -601,6 +601,21 @@ class Driver:
         item["estimated_cny"] = round(float(row.get("estimated_cny") or 0.0), 4)
         item["worst_case_usd"] = worst_usd
 
+        # A stage paused mid-way (budget or crash) must resume, not re-pay.
+        # The input hash already covers the content, so a resolved entry with
+        # the same hash plus an existing output file means this exact item was
+        # produced; a changed prompt hashes differently and is generated again.
+        existing = self._already_produced(ledger, stage, slot, tool, work_item)
+        if existing is not None:
+            item.update(
+                {
+                    "reused": True,
+                    "artifacts": existing,
+                    "billing_state": "reused",
+                }
+            )
+            return item
+
         entry = self._reserve(
             ledger,
             stage,
@@ -697,6 +712,33 @@ class Driver:
             }
         )
         return item
+
+    def _already_produced(
+        self,
+        ledger: SubmissionLedger,
+        stage: str,
+        slot: str,
+        tool: str,
+        work_item: WorkItem,
+    ) -> Optional[list[str]]:
+        """Artifacts from a resolved prior attempt of this exact content item."""
+        input_hash = self._input_hash(stage, slot, tool, work_item)
+        prior = [
+            record
+            for record in ledger.find_by_input_hash(input_hash)
+            if record.get("billing_state") in ("billed", "free")
+        ]
+        if not prior:
+            return None
+        output_path = self._slot_inputs(stage, slot, tool, {}, work_item).get(
+            "output_path"
+        )
+        if not output_path:
+            return None
+        path = Path(output_path)
+        if not path.is_file() or path.stat().st_size == 0:
+            return None
+        return [str(path)]
 
     def _reserve(
         self,
