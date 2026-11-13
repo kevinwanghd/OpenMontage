@@ -124,9 +124,12 @@ class DashscopeImage(BaseTool):
         "Inspect generated image for relevance and quality"
     ]
 
+    #: A Token Plan subscription serves the same API on its own host; honour
+    #: DASHSCOPE_BASE_URL so the plan key is billed against the plan, never
+    #: silently against pay-as-you-go balance.
     ENDPOINT = (
-        "https://dashscope.aliyuncs.com/api/v1/services/aigc/"
-        "multimodal-generation/generation"
+        os.environ.get("DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com").rstrip("/")
+        + "/api/v1/services/aigc/multimodal-generation/generation"
     )
 
     def get_status(self) -> ToolStatus:
