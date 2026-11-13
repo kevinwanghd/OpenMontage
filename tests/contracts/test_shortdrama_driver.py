@@ -847,3 +847,46 @@ def test_checkpoint_approve_rejects_unknown_stage(projects, capsys):
     ])
     assert code == 2
     assert json.loads(capsys.readouterr().err)["code"] == ErrorCode.VALIDATION_ERROR.value
+
+
+def test_ledger_reconcile_unblocks_the_next_real_run(projects, bindings):
+    def failing(_tool: str, _inputs: dict) -> dict:
+        raise RuntimeError("provider transport died after submit")
+
+    with pytest.raises(ApiError):
+        Driver("demo", "ep01", projects_dir=projects, profile="alpha",
+               executor=failing).run(real=True, approve_live=True, budget_usd=5.0)
+    entry_id = SubmissionLedger("demo", "ep01", projects).unknown_entries()[0]["entry_id"]
+
+    code = cli.main([
+        "--projects-dir", str(projects), "ledger", "reconcile",
+        "--project", "demo", "--episode", "ep01",
+        "--entry-id", entry_id, "--state", "free",
+        "--note", "provider console: request rejected, no charge", "--json",
+    ])
+    assert code == 0
+    plan = resume_plan("demo", "ep01", projects_dir=projects, pipeline_type="short-drama")
+    assert plan["mode"] == "run"
+
+    calls: list = []
+    Driver("demo", "ep01", projects_dir=projects, profile="alpha",
+           executor=ok_executor(calls)).run(real=True, approve_live=True, budget_usd=5.0)
+    assert calls, "the reconciled run must be able to proceed"
+
+
+def test_ledger_reconcile_refuses_non_unknown_entries(projects, bindings, capsys):
+    calls: list = []
+    Driver("demo", "ep01", projects_dir=projects, profile="alpha",
+           executor=ok_executor(calls)).run(real=True, approve_live=True, budget_usd=5.0)
+    resolved = [
+        entry for entry in SubmissionLedger("demo", "ep01", projects)._latest().values()
+        if entry["billing_state"] in ("billed", "free")
+    ][0]
+
+    code = cli.main([
+        "--projects-dir", str(projects), "ledger", "reconcile",
+        "--project", "demo", "--episode", "ep01",
+        "--entry-id", resolved["entry_id"], "--state", "free", "--json",
+    ])
+    assert code == 2
+    assert json.loads(capsys.readouterr().err)["code"] == ErrorCode.VALIDATION_ERROR.value

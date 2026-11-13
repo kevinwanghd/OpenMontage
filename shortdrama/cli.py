@@ -753,6 +753,40 @@ def _cmd_demo_real(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_ledger_reconcile(args: argparse.Namespace) -> int:
+    """Resolve an UNKNOWN billing entry after checking the provider console."""
+    from lib.submission_ledger import LedgerError, SubmissionLedger
+
+    service = _service(args)
+    ledger = SubmissionLedger(args.project, args.episode, service.projects_dir)
+    try:
+        entry = ledger.get(args.entry_id)
+    except LedgerError as exc:
+        raise ApiError(
+            ErrorCode.VALIDATION_ERROR, str(exc),
+            "list the ledger entries and retry with an existing entry id",
+            recovery="do-X-first", exit_code=2,
+        ) from exc
+    if entry.get("billing_state") != "unknown" and not args.force:
+        raise ApiError(
+            ErrorCode.VALIDATION_ERROR,
+            f"entry '{args.entry_id}' is '{entry.get('billing_state')}', not 'unknown'",
+            "pass --force only if the provider console contradicts the ledger",
+            recovery="ask-human", exit_code=2,
+        )
+    updated = ledger.mark_result(args.entry_id, args.state)
+    _write(
+        {
+            "entry_id": args.entry_id,
+            "billing_state": updated["billing_state"],
+            "resolved_at": updated.get("resolved_at"),
+            "note": args.note or "",
+        },
+        args.json,
+    )
+    return 0
+
+
 def _cmd_checkpoint_approve(args: argparse.Namespace) -> int:
     """Promote an awaiting_human checkpoint after a human reviewed its files."""
     service = _service(args)
@@ -1003,6 +1037,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--note", default=None, help="what the reviewer checked")
     _add_json(p)
     p.set_defaults(func=_cmd_checkpoint_approve)
+
+    ledger = commands.add_parser(
+        "ledger", help="reconcile UNKNOWN billing entries after provider checks"
+    )
+    ledger_sub = ledger.add_subparsers(dest="ledger_command", required=True)
+    p = ledger_sub.add_parser("reconcile", help="mark an UNKNOWN entry resolved")
+    p.add_argument("--project", required=True)
+    p.add_argument("--episode", required=True)
+    p.add_argument("--entry-id", required=True)
+    p.add_argument("--state", required=True, choices=["free", "billed"])
+    p.add_argument("--note", default=None)
+    p.add_argument("--force", action="store_true")
+    _add_json(p)
+    p.set_defaults(func=_cmd_ledger_reconcile)
 
     p = commands.add_parser("demo", help="seed a mock episode or drive the 9-stage pipeline")
     p.add_argument("--mock", action="store_true",
