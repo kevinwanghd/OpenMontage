@@ -725,7 +725,11 @@ class Driver:
             registered = registry.get(tool)
         except Exception:
             return True
+        if registered is None:
+            return True
         mode = getattr(registered, "execution_mode", None)
+        if mode is None:
+            return True
         return str(getattr(mode, "value", mode)).lower() == "async"
 
     def _already_produced(
