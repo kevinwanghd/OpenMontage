@@ -605,7 +605,9 @@ class Driver:
         # The input hash already covers the content, so a resolved entry with
         # the same hash plus an existing output file means this exact item was
         # produced; a changed prompt hashes differently and is generated again.
-        existing = self._already_produced(ledger, stage, slot, tool, work_item)
+        existing = self._already_produced(
+            ledger, stage, slot, tool, work_item, model=row.get("model")
+        )
         if existing is not None:
             item.update(
                 {
@@ -739,13 +741,21 @@ class Driver:
         slot: str,
         tool: str,
         work_item: WorkItem,
+        model: Optional[str] = None,
     ) -> Optional[list[str]]:
-        """Artifacts from a resolved prior attempt of this exact content item."""
+        """Artifacts from a resolved prior attempt of this exact content item.
+
+        The model is part of the identity: different models can share the same
+        content hash (the work item is provider-neutral), but the file at the
+        deterministic path may have been overwritten by a different model.
+        Reusing it would ship a clip that no longer matches the reviewed input.
+        """
         input_hash = self._input_hash(stage, slot, tool, work_item)
         prior = [
             record
             for record in ledger.find_by_input_hash(input_hash)
             if record.get("billing_state") in ("billed", "free")
+            and (model is None or record.get("model") == model)
         ]
         if not prior:
             return None
