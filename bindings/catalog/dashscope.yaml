@@ -9,6 +9,25 @@
 # to VERIFIED. Prices (CNY per output second): 480P 0.30 / 720P 0.60 / 1080P 1.20.
 version: "1.0"
 entries:
+  - model: dashscope/happyhorse-1.1-t2v
+    operation: text_to_video
+    native_audio: false
+    lipsync_from_dialogue: false
+    reference_images_max: 0
+    reference_video: false
+    reference_audio: false
+    multi_shot: "unknown"
+    cross_shot_identity: "unknown"
+    aspect_ratios: ["9:16", "16:9", "1:1"]
+    min_duration_s: 3
+    max_duration_s: 15
+    output_resolutions: ["720p", "1080p"]
+    seed_control: true
+    first_frame_conditioning: false
+    source: "M1 live probe 2026-11-13: 720P/3s with ratio 9:16 SUCCEEDED on free quota"
+    verified_at: "2026-11-13"
+    verification_status: VERIFIED
+    commercial_rights: "Bailian ToS; free-quota usage, terms re-checked before paid delivery"
   - model: dashscope/happyhorse-1.1-r2v
     operation: image_to_video
     native_audio: false

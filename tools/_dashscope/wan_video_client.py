@@ -172,7 +172,8 @@ def build_request_payload(
         parameters["duration"] = max(int(duration_seconds), 3)
         if image_url:
             video_input["media"] = [{"type": "reference_image", "url": image_url}]
-        parameters.pop("ratio", None)
+            parameters.pop("ratio", None)  # the reference image sets the aspect
+        # text-to-video keeps the ratio: 9:16 yields a vertical clip
     elif image_url:
         video_input["img_url"] = image_url
 
