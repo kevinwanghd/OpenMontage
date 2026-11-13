@@ -122,6 +122,8 @@ class DashscopeVideo(BaseTool):
             },
             "model": {"type": "string", "enum": [MODEL_ID, "wan2.7-i2v", "wan2.7-t2v",
                                                 "happyhorse-1.1-r2v", "happyhorse-1.1-t2v",
+                                                "happyhorse-1.1-i2v", "happyhorse-1.0-i2v",
+                                                "happyhorse-1.0-t2v",
                                                 "happyhorse-1.0-video-edit"],
                       "default": MODEL_ID},
             "fallback_models": {

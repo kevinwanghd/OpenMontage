@@ -282,7 +282,7 @@ def test_tiktok_draft_video_primary_is_official_dashscope():
     primary = chain[0]
     assert primary["tool"] == "dashscope_video"
     assert primary["provider"] == "dashscope"
-    assert primary["catalog_model"] == "dashscope/happyhorse-1.1-r2v"
+    assert primary["catalog_model"] == "dashscope/happyhorse-1.1-i2v"
     assert primary["capabilities"]["output_resolutions"] == ["720p"]
     assert primary["cost_cny_per_run"] == 0.0
     assert primary.get("primary_eligible", True) is True

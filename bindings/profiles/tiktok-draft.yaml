@@ -31,9 +31,9 @@ bindings:
       #    MOCKED until M1 measures a real call.
       - tool: dashscope_video
         provider: dashscope
-        catalog_model: dashscope/happyhorse-1.1-t2v
-        model: happyhorse-1.1-t2v
-        fallback_models: [happyhorse-1.1-r2v]
+        catalog_model: dashscope/happyhorse-1.1-i2v
+        model: happyhorse-1.1-i2v
+        fallback_models: [happyhorse-1.0-i2v, happyhorse-1.1-t2v, happyhorse-1.0-t2v]
         tier: free
         # Free quota on the account (console 2026-11-13: 10 generations);
         # "用完结停" — the tool rotates to the next declared model instead.

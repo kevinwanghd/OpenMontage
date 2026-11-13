@@ -170,10 +170,15 @@ def build_request_payload(
         if _RESOLUTION_RANK.get(canonical_resolution, 0) < _RESOLUTION_RANK["720p"]:
             parameters["resolution"] = WAN27_MIN_RESOLUTION.upper()
         parameters["duration"] = max(int(duration_seconds), 3)
-        if image_url:
+        if "t2v" in model:
+            # text-to-video keeps the ratio: 9:16 yields a vertical clip
+            pass
+        elif image_url and "r2v" in model:
             video_input["media"] = [{"type": "reference_image", "url": image_url}]
-            parameters.pop("ratio", None)  # the reference image sets the aspect
-        # text-to-video keeps the ratio: 9:16 yields a vertical clip
+            parameters.pop("ratio", None)
+        elif image_url:
+            video_input["media"] = [{"type": "first_frame", "url": image_url}]
+            parameters.pop("ratio", None)
     elif image_url:
         video_input["img_url"] = image_url
 
