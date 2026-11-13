@@ -437,20 +437,24 @@ def test_fragment_validates_against_catalog_schema():
     Draft202012Validator(schema).validate(_fragment())
 
 
-def test_fragment_declares_480p_i2v_and_mocked_status():
+def test_fragment_declares_verified_i2v_models():
     entries = _fragment()["entries"]
-    by_operation = {entry["operation"]: entry for entry in entries}
-    assert set(by_operation) == {"text_to_video", "image_to_video"}
+    by_model = {(entry["model"], entry["operation"]): entry for entry in entries}
+    assert ("dashscope/wan3.0-video", "text_to_video") in by_model
+    assert ("dashscope/wan3.0-video", "image_to_video") in by_model
+    assert ("dashscope/wan2.7-i2v", "image_to_video") in by_model
 
     for entry in entries:
-        assert entry["model"] == "dashscope/wan3.0-video"
-        assert "480p" in entry["output_resolutions"]
         assert entry["verification_status"] == "VERIFIED"
         assert entry["commercial_rights"]
 
-    assert by_operation["image_to_video"]["first_frame_conditioning"] is True
-    assert by_operation["image_to_video"]["reference_images_max"] == 1
-    assert by_operation["text_to_video"]["first_frame_conditioning"] is False
+    assert "480p" in by_model[("dashscope/wan3.0-video", "image_to_video")]["output_resolutions"]
+    assert "720p" in by_model[("dashscope/wan2.7-i2v", "image_to_video")]["output_resolutions"]
+
+    assert by_model[("dashscope/wan3.0-video", "image_to_video")]["first_frame_conditioning"] is True
+    assert by_model[("dashscope/wan3.0-video", "image_to_video")]["reference_images_max"] == 1
+    assert by_model[("dashscope/wan3.0-video", "text_to_video")]["first_frame_conditioning"] is False
+    assert by_model[("dashscope/wan2.7-i2v", "image_to_video")]["first_frame_conditioning"] is True
 
 
 def test_ratio_is_sent_in_payload():

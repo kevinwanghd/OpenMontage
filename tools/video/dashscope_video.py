@@ -120,7 +120,8 @@ class DashscopeVideo(BaseTool):
                 "default": "text_to_video",
                 "description": "first_frame is an alias for image_to_video with a first-frame image.",
             },
-            "model": {"type": "string", "enum": [MODEL_ID], "default": MODEL_ID},
+            "model": {"type": "string", "enum": [MODEL_ID, "wan2.7-i2v", "wan2.7-t2v"],
+                      "default": MODEL_ID},
             "resolution": {
                 "type": "string",
                 "enum": list(SUPPORTED_RESOLUTIONS),

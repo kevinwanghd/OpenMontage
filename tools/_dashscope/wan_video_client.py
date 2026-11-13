@@ -43,6 +43,10 @@ SUPPORTED_RESOLUTIONS = ("480p", "720p", "1080p")
 # wan2.7/3.0 replaced the deprecated ``size`` field with resolution + ratio.
 # 480P + 9:16 was measured on 2026-11-13 to produce a 480x854 portrait clip.
 SUPPORTED_RATIOS = ("16:9", "9:16", "1:1", "4:3", "3:4")
+#: wan2.7 has no 480P tier; anything lower is raised to 720P.
+WAN27_MIN_RESOLUTION = "720p"
+_RESOLUTION_RANK = {"480p": 1, "720p": 2, "1080p": 3}
+
 RESOLUTION_PRICES_CNY_PER_SECOND = {
     "480p": 0.30,
     "720p": 0.60,
@@ -135,6 +139,8 @@ def build_request_payload(
             "(reference_image_url or reference_image_path)"
         )
 
+    # wan2.7 uses a different contract: 720P/1080P only, and reference images
+    # go through ``input.media`` with a typed slot instead of ``input.img_url``.
     parameters: dict[str, Any] = {
         # DashScope spells resolutions uppercase (480P), not 480p.
         "resolution": canonical_resolution.upper(),
@@ -151,7 +157,14 @@ def build_request_payload(
         parameters["seed"] = int(seed)
 
     video_input: dict[str, Any] = {"prompt": str(prompt)}
-    if image_url:
+    if model.startswith("wan2.7"):
+        # 480P does not exist on 2.7; the nearest supported tier is 720P.
+        if _RESOLUTION_RANK.get(canonical_resolution, 0) < _RESOLUTION_RANK["720p"]:
+            parameters["resolution"] = WAN27_MIN_RESOLUTION.upper()
+        if image_url:
+            video_input["media"] = [{"type": "first_frame", "url": image_url}]
+        parameters.pop("ratio", None)  # the reference image sets the aspect
+    elif image_url:
         video_input["img_url"] = image_url
 
     return {"model": model, "input": video_input, "parameters": parameters}

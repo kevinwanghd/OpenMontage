@@ -1,25 +1,25 @@
 # P0 primary draft profile (A2 / MOD-03 / §12.10).
 #
 # Routing decision (owner, 2026-11-12): M1 video generation runs on the official
-# Alibaba Bailian (DashScope) subscription -- wan3.0-video at 480P (¥0.30/s).
+# Alibaba Bailian (DashScope) subscription -- wan2.7-i2v at 720P (¥0.60/s); wan3.0-video 480P is the fallback.
 # Membership gateways (molica, Holopix) are kept registered as optional
 # fallbacks only: their ToS/commercial rights are UNVERIFIED (R25), so they must
-# never be the primary chain. Delivery is 480P -> 1080x1920 upscale, a DEGRADED
+# never be the primary chain. Delivery is 720P -> 1080x1920 upscale, a DEGRADED
 # path (DEL-01, F34) declared below -- not improvised at runtime.
 version: "1.0"
 profile: tiktok-draft
-description: "Official Bailian wan3.0-video 480P primary; membership gateways optional/unverified; 1080P delivery via upscale."
+description: "Official Bailian wan2.7-i2v 720P primary; membership gateways optional/unverified; 1080P delivery via upscale."
 draft: true
 cost_routing:
   mode: official_first
   primary: dashscope_video
-  primary_resolution: 480p
+  primary_resolution: 720p
   optional_fallbacks: [molica_video, holopix_video]
   optional_fallback_status: "UNVERIFIED membership ToS (R25); requires approval before use"
 delivery:
   target_platform: tiktok
   target_resolution: 1080x1920
-  draft_resolution: 480p
+  draft_resolution: 720p
   requires_upscale: true
   degradation_id: delivery_upscale
 
@@ -31,12 +31,14 @@ bindings:
       #    MOCKED until M1 measures a real call.
       - tool: dashscope_video
         provider: dashscope
-        catalog_model: dashscope/wan3.0-video
+        catalog_model: dashscope/wan2.7-i2v
+        model: wan2.7-i2v
         tier: paid
-        cost_cny_per_s: 0.30
+        # 720P is 2.7's lowest tier; the 480P rate does not exist there.
+        cost_cny_per_s: 0.60
         operations: [text_to_video, image_to_video]
         capabilities:
-          output_resolutions: ["480p"]
+          output_resolutions: ["720p"]
       # 2. Optional membership fallback -- NOT usable as the primary chain:
       #    membership ToS/commercial rights are UNVERIFIED (R25). Only reachable
       #    when the official primary is unavailable, and only with approval.
@@ -74,7 +76,7 @@ degradation:
         binding: upscale
     approval_required: false
     declared: true
-    note: "480P draft -> 1080x1920 upscale; marked DEGRADED in delivery artifact (DEL-01/F34)."
+    note: "720P draft -> 1080x1920 upscale; marked DEGRADED in delivery artifact (DEL-01/F34)."
 
   - id: video_primary_official_unavailable
     slot: video_primary

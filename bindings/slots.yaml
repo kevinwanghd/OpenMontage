@@ -13,7 +13,7 @@ slots:
     capability_family: video_generation
     required_operations: [image_to_video]
     required_capabilities: {first_frame_conditioning: true}
-    required_output_resolutions: [480p]
+    required_output_resolutions: [720p]
 
   image_character_key:
     description: "Character reference / costume key images used to keep identity stable"

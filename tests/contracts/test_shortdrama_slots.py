@@ -282,9 +282,9 @@ def test_tiktok_draft_video_primary_is_official_dashscope():
     primary = chain[0]
     assert primary["tool"] == "dashscope_video"
     assert primary["provider"] == "dashscope"
-    assert primary["catalog_model"] == "dashscope/wan3.0-video"
-    assert primary["capabilities"]["output_resolutions"] == ["480p"]
-    assert primary["cost_cny_per_s"] == 0.30
+    assert primary["catalog_model"] == "dashscope/wan2.7-i2v"
+    assert primary["capabilities"]["output_resolutions"] == ["720p"]
+    assert primary["cost_cny_per_s"] == 0.60
     assert primary.get("primary_eligible", True) is True
 
     membership_tools = {"molica_video", "holopix_video"}
@@ -377,7 +377,7 @@ def test_tiktok_draft_resolves_official_dashscope_when_available(monkeypatch):
     assert caps["tool"] == "dashscope_video"
     assert caps["provider"] == "dashscope"
     assert caps["verification_status"] == "VERIFIED"
-    assert caps["output_resolutions"] == ["480p"]
+    assert caps["output_resolutions"] == ["720p"]
 
 
 def test_official_unavailable_falls_back_to_optional_membership(monkeypatch):
