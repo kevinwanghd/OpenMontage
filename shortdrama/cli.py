@@ -37,6 +37,7 @@ import yaml
 from pydantic import ValidationError as PydanticValidationError
 
 from lib import capability_slots as slots
+from lib.checkpoint import read_checkpoint, write_checkpoint
 from lib.episode_log import EpisodeLog
 from lib.review import (
     ReviewDecision,
@@ -718,8 +719,8 @@ def _cmd_demo_real(args: argparse.Namespace) -> int:
     """Drive all nine stages for real — only behind explicit consent + budget."""
     service = _service(args)
     driver = Driver(
-        "demo",
-        "ep01",
+        getattr(args, "project", None) or "demo",
+        getattr(args, "episode", None) or "ep01",
         projects_dir=service.projects_dir,
         profile=args.profile or "",
     )
@@ -727,6 +728,8 @@ def _cmd_demo_real(args: argparse.Namespace) -> int:
         real=True,
         approve_live=args.approve_live,
         budget_usd=args.budget_usd,
+        pause_for_review=True,
+        stop_after=getattr(args, "stop_after", None),
     )
     if args.json:
         _write(result, True)
@@ -742,9 +745,51 @@ def _cmd_demo_real(args: argparse.Namespace) -> int:
                 ],
                 "external_api_calls": result["external_api_calls"],
                 "budget": result["budget"],
+                "status": result.get("status"),
+                "waiting_for": result.get("waiting_for"),
             },
             False,
         )
+    return 0
+
+
+def _cmd_checkpoint_approve(args: argparse.Namespace) -> int:
+    """Promote an awaiting_human checkpoint after a human reviewed its files."""
+    service = _service(args)
+    stage = args.stage
+    checkpoint = read_checkpoint(service.projects_dir, args.project, stage)
+    if checkpoint is None:
+        raise ApiError(
+            ErrorCode.VALIDATION_ERROR,
+            f"no checkpoint for stage '{stage}' in project '{args.project}'",
+            "run the stage first, then approve its generated files",
+            recovery="do-X-first",
+            exit_code=2,
+        )
+    if checkpoint.get("status") == "completed" and checkpoint.get("human_approved"):
+        _write({"stage": stage, "project": args.project, "status": "already-approved"}, args.json)
+        return 0
+    metadata = dict(checkpoint.get("metadata") or {})
+    metadata["approved_note"] = args.note or ""
+    path = write_checkpoint(
+        service.projects_dir,
+        args.project,
+        stage,
+        "completed",
+        checkpoint.get("artifacts") or {},
+        pipeline_type=checkpoint.get("pipeline_type"),
+        style_playbook=checkpoint.get("style_playbook"),
+        checkpoint_policy=checkpoint.get("checkpoint_policy") or "manual_all",
+        human_approval_required=True,
+        human_approved=True,
+        cost_snapshot=checkpoint.get("cost_snapshot"),
+        metadata=metadata,
+    )
+    _write(
+        {"stage": stage, "project": args.project, "status": "completed",
+         "human_approved": True, "checkpoint": str(path)},
+        args.json,
+    )
     return 0
 
 
@@ -946,6 +991,19 @@ def build_parser() -> argparse.ArgumentParser:
     _add_json(p)
     p.set_defaults(func=_cmd_profile_use)
 
+    checkpoint = commands.add_parser(
+        "checkpoint", help="approve generated stage files after human review"
+    )
+    checkpoint_sub = checkpoint.add_subparsers(dest="checkpoint_command", required=True)
+    p = checkpoint_sub.add_parser(
+        "approve", help="promote an awaiting_human checkpoint to completed"
+    )
+    p.add_argument("--project", required=True)
+    p.add_argument("--stage", required=True)
+    p.add_argument("--note", default=None, help="what the reviewer checked")
+    _add_json(p)
+    p.set_defaults(func=_cmd_checkpoint_approve)
+
     p = commands.add_parser("demo", help="seed a mock episode or drive the 9-stage pipeline")
     p.add_argument("--mock", action="store_true",
                    help="seed a local episode: zero external API (default hello-world)")
@@ -957,6 +1015,12 @@ def build_parser() -> argparse.ArgumentParser:
                    help="hard cash budget in USD for the --real run")
     p.add_argument("--profile", default=None,
                    help="binding profile for --real (default: active profile)")
+    p.add_argument("--project", default=None,
+                   help="project id for --real (default: demo)")
+    p.add_argument("--episode", default=None,
+                   help="episode id for --real (default: ep01)")
+    p.add_argument("--stop-after", default=None,
+                   help="stop after this stage instead of running all nine")
     _add_json(p)
     p.set_defaults(func=_cmd_demo)
 

@@ -743,3 +743,107 @@ def test_fallback_and_degradation_are_recorded_before_execution(projects, bindin
 
     # The log is written before the first paid call.
     assert execution_order[0] == "img_key"
+
+# ---------------------------------------------------------------------------
+# 9. review gate: a generation stage stops the run until a human approves
+# ---------------------------------------------------------------------------
+
+
+def artifact_executor(calls: list) -> callable:
+    """Executor that reports the tool's output file like the live registry."""
+
+    def execute(tool: str, inputs: dict) -> dict:
+        calls.append((tool, inputs))
+        output = inputs.get("output_path")
+        return {
+            "success": True,
+            "task_id": f"task-{inputs['stage']}-{inputs['slot']}",
+            "cost_cny": 0.0,
+            "artifacts": [output] if output else [],
+        }
+
+    return execute
+
+
+def test_pause_for_review_writes_awaiting_human_and_stops(projects, bindings):
+    calls: list = []
+    driver = Driver("demo", "ep01", projects_dir=projects,
+                    executor=artifact_executor(calls))
+
+    result = driver.run(real=True, approve_live=True, budget_usd=5.0,
+                        pause_for_review=True)
+
+    assert result["status"] == "waiting-for-review"
+    assert result["waiting_for"] == "character_cast"
+    assert [inputs["stage"] for _, inputs in calls] == ["character_cast"]
+
+    checkpoint = json.loads(
+        (projects / "demo" / "checkpoint_character_cast.json").read_text(encoding="utf-8")
+    )
+    assert checkpoint["status"] == "awaiting_human"
+    assert checkpoint["human_approved"] is False
+    generated = checkpoint["artifacts"]["generated"]
+    assert generated["image_character_key"], "generated files must be reviewable"
+    assert checkpoint["cost_snapshot"]["spent"] >= 0
+
+
+def test_awaiting_review_stage_is_never_re_executed(projects, bindings):
+    calls: list = []
+    Driver("demo", "ep01", projects_dir=projects,
+           executor=artifact_executor(calls)).run(
+        real=True, approve_live=True, budget_usd=5.0, pause_for_review=True
+    )
+    calls.clear()
+
+    again = Driver("demo", "ep01", projects_dir=projects,
+                   executor=artifact_executor(calls)).run(
+        real=True, approve_live=True, budget_usd=5.0, pause_for_review=True
+    )
+
+    assert again["status"] == "waiting-for-review"
+    assert again["waiting_for"] == "character_cast"
+    assert calls == [], "an unreviewed stage must not be paid for twice"
+
+
+def test_approving_the_checkpoint_resumes_at_the_next_generation_stage(projects, bindings):
+    calls: list = []
+    Driver("demo", "ep01", projects_dir=projects,
+           executor=artifact_executor(calls)).run(
+        real=True, approve_live=True, budget_usd=5.0, pause_for_review=True
+    )
+
+    code = cli.main([
+        "--projects-dir", str(projects),
+        "checkpoint", "approve", "--project", "demo",
+        "--stage", "character_cast", "--note", "key images match the cards", "--json",
+    ])
+    assert code == 0
+    checkpoint = json.loads(
+        (projects / "demo" / "checkpoint_character_cast.json").read_text(encoding="utf-8")
+    )
+    assert checkpoint["status"] == "completed"
+    assert checkpoint["human_approved"] is True
+    assert checkpoint["metadata"]["approved_note"] == "key images match the cards"
+
+    calls.clear()
+    result = Driver("demo", "ep01", projects_dir=projects,
+                    executor=artifact_executor(calls)).run(
+        real=True, approve_live=True, budget_usd=5.0, pause_for_review=True
+    )
+    assert result["status"] == "waiting-for-review"
+    assert result["waiting_for"] == "keyframe"
+    # keyframe runs both of its declared slots; the previous stage is not re-run.
+    assert {inputs["stage"] for _, inputs in calls} == {"keyframe"}
+    assert {inputs["slot"] for _, inputs in calls} == {
+        "image_reference", "image_character_key",
+    }
+
+
+def test_checkpoint_approve_rejects_unknown_stage(projects, capsys):
+    code = cli.main([
+        "--projects-dir", str(projects),
+        "checkpoint", "approve", "--project", "demo",
+        "--stage", "character_cast", "--json",
+    ])
+    assert code == 2
+    assert json.loads(capsys.readouterr().err)["code"] == ErrorCode.VALIDATION_ERROR.value

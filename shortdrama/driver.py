@@ -34,7 +34,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from lib import capability_slots as slots
-from lib.checkpoint import PROJECTS_DIR, read_checkpoint
+from lib.checkpoint import PROJECTS_DIR, read_checkpoint, write_checkpoint
 from lib.decision_log import DecisionEntry, DecisionLog
 from lib.pipeline_loader import (
     get_stage_order,
@@ -149,6 +149,14 @@ class Driver:
         profile = self.profile or slots.active_profile()
         return slots.resolve(slot, profile, operation=operation)
 
+    def _slot_required(self, slot: str) -> bool:
+        """Manifest-declared requirement; unknown slots stay required (fail loud)."""
+        try:
+            definition = slots.slot_definition(slot)
+        except Exception:
+            return True
+        return bool(definition.get("required", True))
+
     def _cost_row(self, slot: str) -> Optional[dict[str, Any]]:
         """The cost-comparison row for the binding this slot currently resolves to."""
         profile = self.profile or slots.active_profile()
@@ -197,8 +205,16 @@ class Driver:
         real: bool = False,
         approve_live: bool = False,
         budget_usd: Optional[float] = None,
+        pause_for_review: bool = False,
+        stop_after: Optional[str] = None,
     ) -> dict[str, Any]:
-        """Run all nine stages; mock by default, live only with explicit consent."""
+        """Run all nine stages; mock by default, live only with explicit consent.
+
+        ``pause_for_review`` honours the manifest's ``manual_all`` checkpoint
+        policy: a stage that made provider calls writes an ``awaiting_human``
+        checkpoint and the run stops there, so no later stage can spend money
+        on unreviewed assets. ``stop_after`` is the automation escape hatch.
+        """
         if real:
             self._require_live_approval(approve_live, budget_usd)
             self._budget_usd = float(budget_usd)
@@ -252,6 +268,17 @@ class Driver:
         ledger = SubmissionLedger(self.project, self.episode, self.projects_dir)
 
         for stage in self.stage_order[start:]:
+            pending = read_checkpoint(self.projects_dir, self.project, stage)
+            if (
+                pending
+                and pending.get("status") == "awaiting_human"
+                and self.stage_slots(stage)
+            ):
+                # The previous run already spent money on this stage; review it
+                # before any re-execution, never re-pay for the same work.
+                result["status"] = "waiting-for-review"
+                result["waiting_for"] = stage
+                break
             stage_entry: dict[str, Any] = {
                 "index": self.stage_order.index(stage) + 1,
                 "stage": stage,
@@ -264,7 +291,19 @@ class Driver:
             stage_entry["executed"] = any(
                 item.get("executed") for item in stage_entry["slots"]
             )
+            if stage_entry["executed"] and pause_for_review:
+                stage_entry["checkpoint"] = str(
+                    self._write_review_checkpoint(stage, stage_entry, ledger)
+                )
             result["stages"].append(stage_entry)
+            if stage_entry["executed"] and pause_for_review:
+                result["status"] = "waiting-for-review"
+                result["waiting_for"] = stage
+                break
+            if stop_after == stage:
+                result["status"] = "stopped"
+                result["stopped_after"] = stage
+                break
 
         result["external_api_calls"] = self.executed
         result["budget"] = self._budget_summary(ledger)
@@ -430,6 +469,11 @@ class Driver:
         try:
             tool = self._resolve(slot)
         except slots.CapabilitySlotsError as exc:
+            if not self._slot_required(slot):
+                # Optional slots (e.g. a music bed) must not block a paid run.
+                item["skipped"] = True
+                item["error"] = str(exc)
+                return item
             raise self._pause(
                 ErrorCode.BATCH_PRECONDITION_FAILED,
                 f"no usable binding for slot '{slot}' at stage '{stage}': {exc}",
@@ -722,6 +766,38 @@ class Driver:
             "retries_included": self.retries,
         }
 
+    def _write_review_checkpoint(
+        self, stage: str, stage_entry: dict[str, Any], ledger: SubmissionLedger
+    ) -> Path:
+        """Persist generated files as an ``awaiting_human`` checkpoint.
+
+        A generated asset is not an approved asset. The manifest gate forbids
+        writing ``completed`` without human approval, so the driver records the
+        work here and stops; approving rewrites the same stage as completed.
+        """
+        generated: dict[str, list[str]] = {}
+        for slot_entry in stage_entry.get("slots") or []:
+            files = [
+                artifact
+                for item in slot_entry.get("items") or []
+                for artifact in item.get("artifacts") or []
+            ]
+            if files:
+                generated[str(slot_entry["slot"])] = files
+        return write_checkpoint(
+            self.projects_dir,
+            self.project,
+            stage,
+            "awaiting_human",
+            {"generated": generated},
+            pipeline_type=PIPELINE_NAME,
+            checkpoint_policy="manual_all",
+            human_approval_required=True,
+            human_approved=False,
+            cost_snapshot=self._budget_summary(ledger),
+            metadata={"driver": "shortdrama.driver", "episode": self.episode},
+        )
+
     # ------------------------------------------------------------------
     # Decision log (NFR-06 / ORC-04): record before executing
     # ------------------------------------------------------------------
@@ -743,7 +819,10 @@ class Driver:
                         duration_s=self.clip_duration_s,
                     )
                 except slots.CapabilitySlotsError as exc:
-                    # Fail before spending: an unresolvable slot cannot run later.
+                    if not self._slot_required(slot):
+                        continue
+                    # Fail before spending: an unresolvable required slot cannot
+                    # run later, so stop before the first paid call.
                     raise self._pause(
                         ErrorCode.BATCH_PRECONDITION_FAILED,
                         f"cannot plan slot '{slot}' at stage '{stage}': {exc}",
