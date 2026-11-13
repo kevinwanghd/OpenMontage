@@ -120,8 +120,16 @@ class DashscopeVideo(BaseTool):
                 "default": "text_to_video",
                 "description": "first_frame is an alias for image_to_video with a first-frame image.",
             },
-            "model": {"type": "string", "enum": [MODEL_ID, "wan2.7-i2v", "wan2.7-t2v"],
+            "model": {"type": "string", "enum": [MODEL_ID, "wan2.7-i2v", "wan2.7-t2v",
+                                                "happyhorse-1.1-r2v",
+                                                "happyhorse-1.0-video-edit"],
                       "default": MODEL_ID},
+            "fallback_models": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Same-contract models tried in order when the "
+                               "current one reports an exhausted free quota.",
+            },
             "resolution": {
                 "type": "string",
                 "enum": list(SUPPORTED_RESOLUTIONS),
@@ -234,19 +242,24 @@ class DashscopeVideo(BaseTool):
                 raise ValueError("duration_seconds must be positive")
 
             image_url = self._image_reference(inputs)
-            payload = build_request_payload(
-                prompt,
-                operation=operation,
-                model=inputs.get("model") or MODEL_ID,
-                resolution=resolution,
-                duration_seconds=duration,
-                image_url=image_url,
-                negative_prompt=inputs.get("negative_prompt"),
-                seed=inputs.get("seed"),
-                prompt_extend=inputs.get("prompt_extend", True),
-                watermark=inputs.get("watermark", False),
-                ratio=ratio,
-            )
+            models = [inputs.get("model") or MODEL_ID]
+            models.extend(str(m) for m in inputs.get("fallback_models") or [])
+            payloads = [
+                build_request_payload(
+                    prompt,
+                    operation=operation,
+                    model=model,
+                    resolution=resolution,
+                    duration_seconds=duration,
+                    image_url=image_url,
+                    negative_prompt=inputs.get("negative_prompt"),
+                    seed=inputs.get("seed"),
+                    prompt_extend=inputs.get("prompt_extend", True),
+                    watermark=inputs.get("watermark", False),
+                    ratio=ratio,
+                )
+                for model in models
+            ]
         except KeyError:
             return ToolResult(success=False, error="prompt is required")
         except (TypeError, ValueError) as exc:
@@ -257,8 +270,19 @@ class DashscopeVideo(BaseTool):
         except ValueError as exc:
             return ToolResult(success=False, error=str(exc))
 
+        payload = payloads[0]
         try:
-            task_id = transport.submit(payload)
+            for index, candidate in enumerate(payloads):
+                try:
+                    task_id = transport.submit(candidate)
+                    payload = candidate
+                    break
+                except Exception as exc:
+                    # Free-quota models take turns: a quota-exhausted model is
+                    # skipped for the next declared one, anything else fails.
+                    if index + 1 < len(payloads) and self._is_quota_error(exc):
+                        continue
+                    raise
             task = self._wait_for_task(transport, task_id, inputs)
         except Exception as exc:  # network/provider failure becomes a ToolResult
             return ToolResult(
@@ -421,6 +445,15 @@ class DashscopeVideo(BaseTool):
     @staticmethod
     def _safe_error(exc: Exception) -> str:
         return str(exc).replace(os.environ.get("DASHSCOPE_API_KEY", ""), "[redacted]")
+
+    @staticmethod
+    def _is_quota_error(exc: Exception) -> bool:
+        """Only quota/arrears errors justify rotating to the next free model."""
+        message = str(exc).lower()
+        return any(
+            token in message
+            for token in ("arrearage", "freetieronly", "free quota", "quota")
+        )
 
 
 def _live_requested() -> bool:

@@ -164,6 +164,15 @@ def build_request_payload(
         if image_url:
             video_input["media"] = [{"type": "first_frame", "url": image_url}]
         parameters.pop("ratio", None)  # the reference image sets the aspect
+    elif model.startswith("happyhorse"):
+        # happyhorse r2v takes a subject/reference image, 720P/1080P only and
+        # a 3-15s duration; anything below 3s is rejected by the provider.
+        if _RESOLUTION_RANK.get(canonical_resolution, 0) < _RESOLUTION_RANK["720p"]:
+            parameters["resolution"] = WAN27_MIN_RESOLUTION.upper()
+        parameters["duration"] = max(int(duration_seconds), 3)
+        if image_url:
+            video_input["media"] = [{"type": "reference_image", "url": image_url}]
+        parameters.pop("ratio", None)
     elif image_url:
         video_input["img_url"] = image_url
 

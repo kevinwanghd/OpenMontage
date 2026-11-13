@@ -1132,6 +1132,11 @@ class Driver:
                 if row.get("tool_model")
                 else {}
             ),
+            **(
+                {"fallback_models": list(row["fallback_models"])}
+                if row.get("fallback_models")
+                else {}
+            ),
             "output_dir": str(self.projects_dir / self.project / self.episode / "assets"),
             "budget_usd": self._budget_usd,
             "approve_live": True,

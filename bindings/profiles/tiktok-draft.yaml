@@ -31,11 +31,14 @@ bindings:
       #    MOCKED until M1 measures a real call.
       - tool: dashscope_video
         provider: dashscope
-        catalog_model: dashscope/wan2.7-i2v
-        model: wan2.7-i2v
-        tier: paid
-        # 720P is 2.7's lowest tier; the 480P rate does not exist there.
-        cost_cny_per_s: 0.60
+        catalog_model: dashscope/happyhorse-1.1-r2v
+        model: happyhorse-1.1-r2v
+        fallback_models: [wan2.7-i2v]
+        tier: free
+        # Free quota on the account (console 2026-11-13: 10 generations);
+        # "用完结停" — the tool rotates to the next declared model instead.
+        cost_cny_per_run: 0.0
+        quota: {unit: generations, per_run: 1, source: "Bailian free quota 2026-11-13"}
         operations: [text_to_video, image_to_video]
         capabilities:
           output_resolutions: ["720p"]

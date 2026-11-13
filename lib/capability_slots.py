@@ -810,6 +810,7 @@ def _comparison_rows(
                 # from the catalog id ("provider/model") that providers reject
                 # when it is passed as their model parameter.
                 "tool_model": candidate.get("model"),
+                "fallback_models": candidate.get("fallback_models"),
                 "tier": candidate.get("tier"),
                 "chain_index": index,
                 # Candidates marked ``primary_eligible: false`` (membership
