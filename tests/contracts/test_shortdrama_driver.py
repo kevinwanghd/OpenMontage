@@ -907,3 +907,15 @@ def test_start_at_shot_gen_without_keyframes_uses_text_to_video(projects, bindin
     assert [inputs["stage"] for _, inputs in calls] == ["shot_gen"]
     assert calls[0][1]["operation"] == "text_to_video"
     assert calls[0][1]["ratio"] == "9:16"
+
+
+def test_driver_does_not_send_the_catalog_model_id_as_a_tool_input(projects, bindings):
+    """``dashscope/wan3.0-video`` is a catalog id; providers reject it (400)."""
+    calls: list = []
+    Driver("demo", "ep01", projects_dir=projects, profile="alpha",
+           executor=ok_executor(calls)).run(
+        real=True, approve_live=True, budget_usd=5.0)
+    assert calls
+    for _, inputs in calls:
+        if "model" in inputs:
+            assert "/" not in str(inputs["model"])

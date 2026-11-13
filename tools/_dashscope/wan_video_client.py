@@ -280,7 +280,13 @@ class LiveWanTransport:
             json=payload,
             timeout=self.timeout,
         )
-        response.raise_for_status()
+        if response.status_code >= 400:
+            # Surface the provider's message; a bare "400 Bad Request" hides
+            # whether the cause is a bad model id, an arrears block, or a
+            # parameter rejection, and costs a debugging cycle each time.
+            raise RuntimeError(
+                f"DashScope {response.status_code}: {response.text[:400]}"
+            )
         data = response.json()
         task_id = (data.get("output") or {}).get("task_id")
         if not task_id:

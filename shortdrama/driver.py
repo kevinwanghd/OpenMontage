@@ -1064,7 +1064,6 @@ class Driver:
             "slot": slot,
             "tool": tool,
             "profile": self.profile or slots.active_profile(),
-            "model": row.get("model"),
             "output_dir": str(self.projects_dir / self.project / self.episode / "assets"),
             "budget_usd": self._budget_usd,
             "approve_live": True,
