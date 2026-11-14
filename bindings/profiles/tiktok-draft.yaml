@@ -1,17 +1,18 @@
 # P0 primary draft profile (A2 / MOD-03 / §12.10).
 #
-# Routing decision (owner, 2026-11-12): M1 video generation runs on the official
-# Alibaba Bailian (DashScope) subscription -- wan2.7-i2v at 720P (¥0.60/s); wan3.0-video 480P is the fallback.
+# Routing decision (owner, 2026-11-14): M1 video generation runs on the Token
+# Plan subscription -- wan3.0-video at 720P (¥0.60/s). Free models (happyhorse
+# etc.) are NOT used unless the user explicitly requests them.
 # Membership gateways (molica, Holopix) are kept registered as optional
 # fallbacks only: their ToS/commercial rights are UNVERIFIED (R25), so they must
 # never be the primary chain. Delivery is 720P -> 1080x1920 upscale, a DEGRADED
 # path (DEL-01, F34) declared below -- not improvised at runtime.
 version: "1.0"
 profile: tiktok-draft
-description: "Official Bailian wan2.7-i2v 720P primary; membership gateways optional/unverified; 1080P delivery via upscale."
+description: "Token Plan wan3.0-video 720P primary with native lipsync; no free models; 1080P delivery via upscale."
 draft: true
 cost_routing:
-  mode: official_first
+  mode: token_plan
   primary: dashscope_video
   primary_resolution: 720p
   optional_fallbacks: [molica_video, holopix_video]
@@ -26,22 +27,20 @@ delivery:
 bindings:
   video_primary:
     chain:
-      # 1. Official Alibaba Bailian API: the sole primary chain (owner decision
-      #    2026-11-12). M0 runs the mock transport; verification_status stays
-      #    MOCKED until M1 measures a real call.
+      # 1. Token Plan wan3.0-video: the sole primary chain (owner decision
+      #    2026-11-14). Native lipsync via media[reference_audio]; no free
+      #    model rotation. DASHSCOPE_BASE_URL must point to the Token Plan host.
       - tool: dashscope_video
         provider: dashscope
-        catalog_model: dashscope/happyhorse-1.1-i2v
-        model: happyhorse-1.1-i2v
-        fallback_models: [happyhorse-1.0-i2v, happyhorse-1.1-t2v, happyhorse-1.0-t2v]
-        tier: free
-        # Free quota on the account (console 2026-11-13: 10 generations);
-        # "用完结停" — the tool rotates to the next declared model instead.
-        cost_cny_per_run: 0.0
-        quota: {unit: generations, per_run: 1, source: "Bailian free quota 2026-11-13"}
+        catalog_model: dashscope/wan3.0-video
+        model: wan3.0-video
+        tier: paid
+        cost_cny_per_run: 3.0
         operations: [text_to_video, image_to_video]
         capabilities:
-          output_resolutions: ["720p"]
+          output_resolutions: ["480p", "720p", "1080p"]
+          lipsync_from_dialogue: true
+          reference_audio: true
       # 2. Optional membership fallback -- NOT usable as the primary chain:
       #    membership ToS/commercial rights are UNVERIFIED (R25). Only reachable
       #    when the official primary is unavailable, and only with approval.

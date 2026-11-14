@@ -87,39 +87,39 @@ entries:
     commercial_rights: "Bailian ToS; commercial terms re-checked before paid delivery"
   - model: dashscope/wan3.0-video
     operation: text_to_video
-    native_audio: false
-    lipsync_from_dialogue: false
-    reference_images_max: 0
-    reference_video: false
-    reference_audio: false
+    native_audio: true
+    lipsync_from_dialogue: true
+    reference_images_max: 10
+    reference_video: true
+    reference_audio: true
     multi_shot: "unknown"
-    cross_shot_identity: "unknown"
-    aspect_ratios: ["9:16", "16:9", "1:1"]
-    min_duration_s: 1
-    max_duration_s: 10
-    output_resolutions: ["480p", "720p", "1080p"]
-    seed_control: true
-    first_frame_conditioning: false
-    source: "Bailian price sheet 2026-11-11 (§13.1) + M1 live probe 2026-11-13: 480P + ratio 9:16 -> 480x854, 2s/5s clips SUCCEEDED"
-    verified_at: "2026-11-13"
-    verification_status: VERIFIED
-    commercial_rights: "Bailian ToS; commercial terms re-checked in M1 before paid delivery"
-  - model: dashscope/wan3.0-video
-    operation: image_to_video
-    native_audio: false
-    lipsync_from_dialogue: false
-    reference_images_max: 1
-    reference_video: false
-    reference_audio: false
-    multi_shot: "unknown"
-    cross_shot_identity: "unknown"
-    aspect_ratios: ["9:16", "16:9", "1:1"]
-    min_duration_s: 1
-    max_duration_s: 10
+    cross_shot_identity: "reference_image"
+    aspect_ratios: ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16", "adaptive"]
+    min_duration_s: 2
+    max_duration_s: 30
     output_resolutions: ["480p", "720p", "1080p"]
     seed_control: true
     first_frame_conditioning: true
-    source: "M1 live probe 2026-11-13: input.img_url first frame, 480P + ratio 9:16 -> 480x854 portrait, task SUCCEEDED"
-    verified_at: "2026-11-13"
+    source: "Official API ref 2026-11-14: input.media[type=reference_audio] drives lipsync; first_frame and reference_* mutually exclusive; parameters.audio defaults true; 2-30s"
+    verified_at: "2026-11-14"
     verification_status: VERIFIED
-    commercial_rights: "Bailian ToS; commercial terms re-checked in M1 before paid delivery"
+    commercial_rights: "Bailian ToS; Token Plan subscription"
+  - model: dashscope/wan3.0-video
+    operation: image_to_video
+    native_audio: true
+    lipsync_from_dialogue: true
+    reference_images_max: 10
+    reference_video: true
+    reference_audio: true
+    multi_shot: "unknown"
+    cross_shot_identity: "first_frame"
+    aspect_ratios: ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16", "adaptive"]
+    min_duration_s: 2
+    max_duration_s: 30
+    output_resolutions: ["480p", "720p", "1080p"]
+    seed_control: true
+    first_frame_conditioning: true
+    source: "Official API ref 2026-11-14: no audio -> media[first_frame]; with audio -> media[reference_image]+media[reference_audio] (first_frame mutually exclusive with reference_*); parameters.audio controls output audio track"
+    verified_at: "2026-11-14"
+    verification_status: VERIFIED
+    commercial_rights: "Bailian ToS; Token Plan subscription"
