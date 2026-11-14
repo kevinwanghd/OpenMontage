@@ -497,23 +497,70 @@ def _compose_items(
     project: str,
     episode: str,
 ) -> list[WorkItem]:
-    """Compose from the approved clips + dialogue tracks + subtitle file."""
+    """Compose the approved clips into one vertical cut.
+
+    ``video_compose`` speaks ``edit_decisions`` (cuts with source/in/out), not
+    a bare clip list. When the assembly director already produced that
+    artifact it wins; otherwise the cuts are derived deterministically from
+    scene_plan order and the approved clips in asset_manifest.
+    """
     manifest = artifacts.get("asset_manifest")
     if not manifest:
         raise ContentError("compose requires the asset_manifest artifact")
+    scene_plan = artifacts.get("scene_plan") or {}
     assets = _assets_dir(projects_dir, project, episode)
-    clips = [
-        str(assets / f"shot_gen_video_primary_{a['scene_id']}.mp4")
-        for a in manifest.get("assets") or []
-        if isinstance(a, dict) and a.get("type") == "video"
-    ]
-    return [
-        WorkItem(
-            "compose_default",
-            {
-                "operation": "compose",
-                "clips": clips,
-                "subtitle_path": str(assets / "assembly_subtitle_subtitle_default.srt"),
+
+    edit_decisions = artifacts.get("edit_decisions")
+    if not isinstance(edit_decisions, dict):
+        approved = {
+            a["scene_id"]
+            for a in manifest.get("assets") or []
+            if isinstance(a, dict) and a.get("type") == "video"
+        }
+        cuts: list[dict[str, Any]] = []
+        missing: list[str] = []
+        for shot in _shots(scene_plan):
+            shot_id = _shot_id(shot)
+            if shot_id not in approved:
+                missing.append(shot_id)
+                continue
+            clip = assets / f"shot_gen_video_primary_{shot_id}.mp4"
+            if not clip.is_file():
+                missing.append(shot_id)
+                continue
+            cuts.append(
+                {
+                    "source": str(clip),
+                    "in_seconds": 0.0,
+                    "out_seconds": float(shot.get("duration_s") or 5.0),
+                    "shot_id": shot_id,
+                }
+            )
+        if missing:
+            raise ContentError(
+                "compose has no approved clip for shot(s) "
+                f"{', '.join(missing)}; generate shot_gen first"
+            )
+        if not cuts:
+            raise ContentError("compose produced no cuts from the asset_manifest")
+        edit_decisions = {
+            "cuts": cuts,
+            # 9:16 draft canvas; cover crops rather than letterboxing a
+            # vertical source into a landscape default.
+            "metadata": {
+                "compose_target": {"width": 720, "height": 1280, "fit": "cover"}
             },
-        )
-    ]
+        }
+
+    subtitle = assets / "assembly_subtitle_subtitle_default.srt"
+    edit_decisions = dict(edit_decisions)
+    if subtitle.is_file() and not edit_decisions.get("subtitles"):
+        edit_decisions["subtitles"] = {"source": str(subtitle)}
+
+    inputs: dict[str, Any] = {
+        "operation": "compose",
+        "edit_decisions": edit_decisions,
+    }
+    if subtitle.is_file():
+        inputs["subtitle_path"] = str(subtitle)
+    return [WorkItem("compose_default", inputs)]
