@@ -453,6 +453,22 @@ class Driver:
                 side_effects="none",
                 context={"stage": stage, "continuity_errors": errors},
             )
+        if stage == "shot_gen" and self.keyframes_required and self.qa_enabled:
+            # The reviewer runs on stills, before the expensive video call: a
+            # rejected keyframe must never be inherited by a generated clip.
+            review_errors = self._visual_review_errors()
+            if review_errors:
+                raise self._pause(
+                    ErrorCode.BATCH_PRECONDITION_FAILED,
+                    "keyframe visual gate failed before shot_gen: "
+                    + "; ".join(review_errors),
+                    "run the shortdrama-reviewer agent on the keyframes, fix or "
+                    "regenerate the rejected candidates, persist a passing "
+                    "verdict, then re-run",
+                    recovery="do-X-first",
+                    side_effects="none",
+                    context={"stage": stage, "visual_review_errors": review_errors},
+                )
         if self.stage_slots(stage):
             return
 
@@ -508,6 +524,33 @@ class Driver:
                 scene_plan, artifacts.get("asset_manifest")
             )
         return errors
+
+    def _visual_review_errors(self) -> list[str]:
+        """Keyframes must carry a passing visual verdict before video spend."""
+        from shortdrama import preflight
+
+        path = content.artifact_path(
+            self.projects_dir, self.project, self.episode, "qa_visual"
+        )
+        return preflight.visual_review_errors(path.parent)
+
+    def _video_preflight(self, items: list[WorkItem], row: dict[str, Any]) -> list[str]:
+        """Every item's parameters must be legal for the resolved model."""
+        from shortdrama import preflight
+
+        catalog_model = row.get("model")
+        if not catalog_model:
+            # A local/custom binding declares no catalog contract to check.
+            return []
+        return preflight.validate_items(
+            items,
+            catalog_model=catalog_model,
+            model=row.get("tool_model"),
+            provider=row.get("provider"),
+            fallback_models=row.get("fallback_models") or (),
+            resolution=self._draft_resolution(),
+            base_dir=self.projects_dir / self.project / self.episode,
+        )
 
     def _slot_items(self, stage: str, slot: str) -> list[WorkItem]:
         try:
@@ -599,6 +642,25 @@ class Driver:
                 side_effects="none",
                 context={"stage": stage, "slot": slot, "tool": tool},
             )
+        if slot == "video_primary":
+            contract_errors = self._video_preflight(work_items, row)
+            if contract_errors:
+                raise self._pause(
+                    ErrorCode.BATCH_PRECONDITION_FAILED,
+                    f"model contract preflight failed at stage '{stage}': "
+                    + "; ".join(contract_errors),
+                    "fix the work-item parameters (operation, duration, ratio, "
+                    "resolution, reference files) or bind a model that supports "
+                    "them, then re-run; nothing was spent",
+                    recovery="do-X-first",
+                    side_effects="none",
+                    context={
+                        "stage": stage,
+                        "slot": slot,
+                        "tool": tool,
+                        "contract_errors": contract_errors,
+                    },
+                )
 
         results = [
             self._run_item(ledger, stage, slot, tool, row, work_item)

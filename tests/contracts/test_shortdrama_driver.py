@@ -145,6 +145,28 @@ def make_bindings(root: Path) -> Path:
             "degradation": [],
         }
 
+    def catalog_entry(model: str) -> dict:
+        return {
+            "model": model,
+            "operation": None,
+            "lipsync_from_dialogue": False,
+            "reference_audio": False,
+            "aspect_ratios": ["9:16", "16:9", "1:1"],
+            "min_duration_s": 1,
+            "max_duration_s": 30,
+            "output_resolutions": ["480p", "720p", "1080p"],
+            "verification_status": "VERIFIED",
+            "commercial_rights": "test fixture",
+        }
+
+    catalog_entries = []
+    for model in ("test/alpha", "test/beta", "test/gone"):
+        for operation in ("image_to_video", "text_to_video"):
+            entry = catalog_entry(model)
+            entry["operation"] = operation
+            catalog_entries.append(entry)
+    _write_yaml(root / "catalog" / "test.yaml", {"version": "1.0", "entries": catalog_entries})
+
     _write_yaml(root / "profiles" / "alpha.yaml", video_profile("alpha", "alpha_video"))
     _write_yaml(root / "profiles" / "beta.yaml", video_profile("beta", "beta_video"))
     _write_yaml(root / "profiles" / "fallback.yaml", {
@@ -314,6 +336,11 @@ def seed_reviewed_artifacts(projects: Path, *, shots: int = 1) -> None:
     _write_json(artifacts_dir / "asset_manifest.json", asset_manifest)
     _write_json(artifacts_dir / "edit_decisions.json", edit_decisions)
 
+    keyframes_dir = projects / "demo" / "ep01" / "assets" / "keyframes"
+    keyframes_dir.mkdir(parents=True, exist_ok=True)
+    for index in range(shots):
+        (keyframes_dir / f"sh_{index:03d}_v1.png").write_bytes(b"fake-png")
+
     _approved_checkpoint(projects, "idea", {"brief": brief})
     _approved_checkpoint(projects, "beat_map", {})
     _approved_checkpoint(projects, "script", {"script": script})
@@ -428,9 +455,10 @@ def test_cli_demo_real_requires_consent_flags(projects, capsys):
     assert envelope["code"] == ErrorCode.VALIDATION_ERROR.value
     assert envelope["recovery"] == "do-X-first"
     assert envelope["side_effects"] == "none"
-    # No ledger, asset or spend artifact is created by the refused run.
+    # No ledger or spend artifact is created by the refused run.
     assert not (projects / "demo" / "ep01" / "ledger.jsonl").exists()
-    assert not (projects / "demo" / "ep01" / "assets").exists()
+    assets = projects / "demo" / "ep01" / "assets"
+    assert sorted(item.name for item in assets.iterdir()) == ["keyframes"]
 
 
 def test_cli_demo_rejects_mock_and_real_together(projects, capsys):
@@ -979,3 +1007,64 @@ def test_continuity_gate_blocks_unknown_character_before_spend(projects, binding
     assert raised.value.code == ErrorCode.BATCH_PRECONDITION_FAILED
     assert raised.value.context["continuity_errors"]
     assert calls == [], "continuity gate must fire before any provider call"
+
+
+def test_model_contract_gate_blocks_before_any_provider_call(
+    projects, bindings, monkeypatch
+):
+    monkeypatch.setattr(
+        cs, "catalog_entry",
+        lambda model, operation: (
+            {
+                "model": model, "operation": operation,
+                "min_duration_s": 2, "max_duration_s": 30,
+                "aspect_ratios": ["9:16", "16:9", "1:1"],
+                "output_resolutions": ["480p", "720p", "1080p"],
+                "lipsync_from_dialogue": True, "reference_audio": True,
+            }
+            if model == "dashscope/wan3.0-video" else None
+        ),
+    )
+    plan_path = projects / "demo" / "ep01" / "artifacts" / "scene_plan.json"
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    plan["shots"][0]["duration_s"] = 1  # below wan3.0's 2s minimum
+    plan_path.write_text(json.dumps(plan), encoding="utf-8")
+
+    calls: list = []
+    driver = Driver("demo", "ep01", projects_dir=projects, profile="alpha",
+                    executor=ok_executor(calls))
+    # Emulate the real binding: a catalog-declared model with a known contract.
+    driver._cost_row = lambda slot: {
+        "tool": "alpha_video", "provider": "dashscope",
+        "model": "dashscope/wan3.0-video", "tool_model": "wan3.0-video",
+        "fallback_models": None, "estimated_cny": 0.0, "cost_known": True,
+    }
+    with pytest.raises(ApiError) as raised:
+        driver.run(real=True, approve_live=True, budget_usd=5.0,
+                   start_at="shot_gen")
+    assert raised.value.code == ErrorCode.BATCH_PRECONDITION_FAILED
+    assert raised.value.context["contract_errors"]
+    assert any("below the model minimum" in e
+               for e in raised.value.context["contract_errors"])
+    assert calls == [], "contract gate must fire before any provider call"
+
+
+def test_shot_gen_visual_gate_blocks_when_verdict_is_missing(projects, bindings):
+    # No executor -> production path, where the visual gate is armed.
+    driver = Driver("demo", "ep01", projects_dir=projects, profile="alpha")
+    with pytest.raises(ApiError) as raised:
+        driver._preflight_stage("shot_gen")
+    assert raised.value.code == ErrorCode.BATCH_PRECONDITION_FAILED
+    assert raised.value.context["visual_review_errors"]
+    assert "visual review not run" in raised.value.context["visual_review_errors"][0]
+
+
+def test_shot_gen_visual_gate_passes_with_a_clean_verdict(projects, bindings):
+    artifacts = projects / "demo" / "artifacts"
+    artifacts.mkdir(parents=True, exist_ok=True)
+    (artifacts / "qa_visual.json").write_text(
+        json.dumps({"verdict": "pass", "blocking": [], "warnings": []}),
+        encoding="utf-8",
+    )
+    driver = Driver("demo", "ep01", projects_dir=projects, profile="alpha")
+    driver._preflight_stage("shot_gen")  # must not raise
