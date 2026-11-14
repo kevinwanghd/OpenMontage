@@ -14,6 +14,8 @@ filesystem. They never call a provider and never modify an artifact.
 """
 from __future__ import annotations
 
+# risk:untested reason:"preflight 契约由 tests/contracts/test_shortdrama_preflight.py 的 18 条用例覆盖；thin 静态门禁无法关联测试映射" owner:@kevinwanghd reviewed:2026-11-14
+
 import json
 from pathlib import Path
 from typing import Any, Iterable, Optional
