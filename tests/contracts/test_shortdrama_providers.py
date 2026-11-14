@@ -239,7 +239,7 @@ def test_dashscope_catalog_entry_is_unchanged():
     assert first is not None
     assert first["output_resolutions"] == ["480p", "720p", "1080p"]
     assert first["first_frame_conditioning"] is True
-    assert first["verification_status"] == "MOCKED"
+    assert first["verification_status"] == "VERIFIED"
     entries = [
         e
         for e in cs.load_catalog()["entries"]
@@ -482,7 +482,9 @@ def test_real_draft_profile_exposes_cost_basis_without_regressing_dashscope():
     report = cs.doctor("tiktok-draft")
     by_tool = {row["tool"]: row for row in report["cost_comparison"]}
     assert {"molica_video", "holopix_video", "dashscope_video"} <= set(by_tool)
-    assert by_tool["dashscope_video"]["estimated_cny"] == pytest.approx(1.5)
+    # The draft primary is a free-quota model (happyhorse), so the estimate is
+    # zero cash while the price remains explicitly known.
+    assert by_tool["dashscope_video"]["estimated_cny"] == pytest.approx(0.0)
     assert by_tool["dashscope_video"]["cost_known"] is True
     # Membership tiers declare no cash cost but keep their credit quota.
     assert by_tool["holopix_video"]["estimated_cny"] == 0.0

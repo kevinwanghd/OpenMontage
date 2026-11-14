@@ -713,3 +713,39 @@ class TestDashscopeRegistryDiscovery:
         from tools.audio.tts_selector import TTSSelector
         selector = TTSSelector()
         assert DashscopeTTS().capability == "tts"
+
+
+def test_image_request_retries_transient_connection_errors(monkeypatch):
+    import tools.graphics.dashscope_image as dim
+    import requests
+
+    monkeypatch.setattr(dim.time, "sleep", lambda s: None)
+    calls = {"n": 0}
+
+    def flaky(*_a, **_k):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise requests.exceptions.ConnectionError("reset")
+        resp = type("R", (), {"raise_for_status": lambda self: None, "json": lambda self: {}})()
+        return resp
+
+    result = dim.DashscopeImage._request_with_retry(flaky)
+    assert result is not None
+    assert calls["n"] == 3
+
+
+def test_image_request_does_not_retry_validation_errors(monkeypatch):
+    import tools.graphics.dashscope_image as dim
+    import requests
+
+    monkeypatch.setattr(dim.time, "sleep", lambda s: None)
+    calls = {"n": 0}
+
+    def bad(*_a, **_k):
+        calls["n"] += 1
+        response = type("Resp", (), {"status_code": 400})()
+        raise requests.exceptions.HTTPError(response=response)
+
+    with pytest.raises(requests.exceptions.HTTPError):
+        dim.DashscopeImage._request_with_retry(bad)
+    assert calls["n"] == 1

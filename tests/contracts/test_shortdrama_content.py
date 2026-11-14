@@ -252,3 +252,80 @@ def test_input_hash_changes_with_content():
         "shot_gen", "video_primary", "dashscope_video",
         WorkItem("sh_000", {"prompt": "She turns away"}),
     )
+
+def test_shot_gen_without_keyframes_animates_from_text():
+    """Declared fallback: no image slot -> text_to_video per shot, still 9:16."""
+    items = build_work_items(
+        "shot_gen",
+        "video_primary",
+        {"scene_plan": _scene_plan(2)},
+        keyframes_required=False,
+    )
+
+    assert [item.item_id for item in items] == ["sh_000", "sh_001"]
+    first = items[0].inputs
+    assert first["operation"] == "text_to_video"
+    assert "reference_image_path" not in first
+    assert first["ratio"] == "9:16"
+    assert "She turns away" in first["prompt"]
+
+
+# ---------------------------------------------------------------------------
+# continuity gates + assembly wiring (M1 review fixes)
+# ---------------------------------------------------------------------------
+
+
+def test_shot_tts_items_one_per_dialogue_shot():
+    plan = _scene_plan(2)
+    plan["shots"][0]["dialogue"] = {"text": "hello", "speaker": "ch_lin"}
+    items = build_work_items("shot_gen", "tts_voice", {"scene_plan": plan})
+    assert [i.item_id for i in items] == ["sh_000"]
+    assert items[0].inputs["text"] == "hello"
+
+
+def test_shot_video_attaches_dialogue_audio_when_present(tmp_path):
+    plan = _scene_plan(1)
+    plan["shots"][0]["dialogue"] = {"text": "hi", "speaker": "ch_lin"}
+    assets = tmp_path / "demo" / "ep01" / "assets"
+    assets.mkdir(parents=True)
+    (assets / "shot_gen_tts_voice_sh_000.mp3").write_bytes(b"x")
+    items = build_work_items(
+        "shot_gen", "video_primary",
+        {"scene_plan": plan, "asset_manifest": _manifest(["sh_000"])},
+        projects_dir=tmp_path, project="demo", episode="ep01",
+    )
+    assert items[0].inputs["audio_path"].endswith("shot_gen_tts_voice_sh_000.mp3")
+
+
+def test_subtitle_segments_capped_to_real_audio():
+    from shortdrama import continuity
+    script = {"sections": [
+        {"id": "s1", "text": "a long line", "start_seconds": 5, "end_seconds": 10},
+    ]}
+    segs = continuity.subtitle_segments(script, lambda sid: 1.5)
+    assert segs[0]["start"] == 5
+    assert segs[0]["end"] <= 5 + 2.5
+    assert segs[0]["end"] - segs[0]["start"] <= 2.5
+
+
+def test_continuity_rejects_unknown_character():
+    from shortdrama import continuity
+    plan = _scene_plan(1)
+    errs = continuity.validate_scene_plan(plan, {"ch_other"})
+    assert any("ch_lin" in e for e in errs)
+
+
+def test_continuity_requires_keyframe_per_shot():
+    from shortdrama import continuity
+    plan = _scene_plan(2)
+    errs = continuity.validate_keyframes(plan, _manifest(["sh_000"]))
+    assert any("sh_001" in e for e in errs)
+
+
+def test_continuity_dialogue_needs_audio():
+    from shortdrama import continuity
+    plan = _scene_plan(1)
+    plan["shots"][0]["dialogue"] = {"text": "hi"}
+    errs = continuity.validate_dialogue_audio(plan, lambda sid: None)
+    assert errs and "sh_000" in errs[0]
+    assert continuity.validate_dialogue_audio(plan, lambda sid: "x.mp3") == []

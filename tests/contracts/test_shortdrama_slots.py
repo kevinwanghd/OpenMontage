@@ -282,9 +282,9 @@ def test_tiktok_draft_video_primary_is_official_dashscope():
     primary = chain[0]
     assert primary["tool"] == "dashscope_video"
     assert primary["provider"] == "dashscope"
-    assert primary["catalog_model"] == "dashscope/wan3.0-video"
-    assert primary["capabilities"]["output_resolutions"] == ["480p"]
-    assert primary["cost_cny_per_s"] == 0.30
+    assert primary["catalog_model"] == "dashscope/happyhorse-1.1-i2v"
+    assert primary["capabilities"]["output_resolutions"] == ["720p"]
+    assert primary["cost_cny_per_run"] == 0.0
     assert primary.get("primary_eligible", True) is True
 
     membership_tools = {"molica_video", "holopix_video"}
@@ -299,9 +299,9 @@ def test_tiktok_draft_video_primary_is_official_dashscope():
         assert entry is not None
         assert entry["verification_status"] == "UNVERIFIED"
 
-    # The mock-first dashscope tool must never be reported as verified yet.
+    # Live probe 2026-11-13 measured 480P portrait i2v; the entry is VERIFIED.
     video_entry = cs.catalog_entry("dashscope/wan3.0-video", "image_to_video")
-    assert video_entry["verification_status"] == "MOCKED"
+    assert video_entry["verification_status"] == "VERIFIED"
 
 
 def test_membership_gateways_are_optional_not_primary():
@@ -318,20 +318,22 @@ def test_image_slots_prefer_official_dashscope_image():
     """Image slots also follow the official-first decision.
 
     dashscope_image is an official Bailian API tool already present in the
-    registry; the legacy fal.ai gateway remains only as a fallback. No live
-    measurement exists, so its catalog entry is UNVERIFIED.
+    registry; the legacy fal.ai gateway remains only as a fallback. The primary
+    is wan2.7-image: it is the only image model with live free quota on this
+    account (qwen-image-* is arrears-blocked).
     """
     data = cs.load_profile("tiktok-draft")
     for slot in ("image_character_key", "image_reference"):
         chain = data["bindings"][slot]["chain"]
         assert chain[0]["tool"] == "dashscope_image"
         assert chain[0]["provider"] == "dashscope"
-        assert chain[0]["catalog_model"] == "dashscope/qwen-image-2.0-pro"
+        assert chain[0]["catalog_model"] == "dashscope/wan2.7-image"
+        assert chain[0]["model"] == "wan2.7-image"
         assert chain[1]["tool"] == "bria_fal_image"
 
-    entry = cs.catalog_entry("dashscope/qwen-image-2.0-pro", "text_to_image")
+    entry = cs.catalog_entry("dashscope/wan2.7-image", "text_to_image")
     assert entry is not None
-    assert entry["verification_status"] == "UNVERIFIED"
+    assert entry["verification_status"] == "VERIFIED"
 
 
 def _available(capabilities=None, install=""):
@@ -374,8 +376,8 @@ def test_tiktok_draft_resolves_official_dashscope_when_available(monkeypatch):
     caps = cs.supports("video_primary", "tiktok-draft")
     assert caps["tool"] == "dashscope_video"
     assert caps["provider"] == "dashscope"
-    assert caps["verification_status"] == "MOCKED"
-    assert caps["output_resolutions"] == ["480p"]
+    assert caps["verification_status"] == "VERIFIED"
+    assert caps["output_resolutions"] == ["720p"]
 
 
 def test_official_unavailable_falls_back_to_optional_membership(monkeypatch):
@@ -453,8 +455,8 @@ def test_doctor_without_credentials_is_blocked_and_reports_setup(monkeypatch):
     assert any(r["slot"] == "image_character_key" for r in setup)
 
 
-def test_doctor_mocked_dashscope_video_is_degraded_not_green(monkeypatch):
-    """MOCKED is not VERIFIED: the three-state verdict must stay honest."""
+def test_doctor_verified_dashscope_video_warns_only_about_upscale(monkeypatch):
+    """VERIFIED video removes CAPABILITY_UNVERIFIED; 480p draft still needs upscale."""
     _patch_real_profile_states(
         monkeypatch,
         {
@@ -472,7 +474,8 @@ def test_doctor_mocked_dashscope_video_is_degraded_not_green(monkeypatch):
     report = cs.doctor("tiktok-draft")
     assert report["status"] == "DEGRADED"
     video_reasons = [r for r in report["reasons"] if r["slot"] == "video_primary"]
-    assert any(r["code"] == "CAPABILITY_UNVERIFIED" for r in video_reasons)
+    assert not any(r["code"] == "CAPABILITY_UNVERIFIED" for r in video_reasons)
+    assert any(r["code"] == "DRAFT_UPSCALE_DECLARED" for r in video_reasons)
     assert not any("VERIFIED" == str(r.get("message", "")) for r in report["reasons"])
 
 

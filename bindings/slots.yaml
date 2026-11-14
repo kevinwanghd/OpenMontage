@@ -12,8 +12,10 @@ slots:
     required: true
     capability_family: video_generation
     required_operations: [image_to_video]
-    required_capabilities: {first_frame_conditioning: true}
-    required_output_resolutions: [480p]
+    # Image conditioning is the real requirement: some free models anchor on
+    # a subject reference instead of an exact first frame. Both are keyframe-driven.
+    required_capabilities: {reference_images_max: 1}
+    required_output_resolutions: [720p]
 
   image_character_key:
     description: "Character reference / costume key images used to keep identity stable"

@@ -183,6 +183,8 @@ stages:
     produces:
       - asset_manifest
     tools_available:
+      # Dialogue TTS runs BEFORE video so on-screen speech can drive lipsync.
+      - slot:tts_voice
       - slot:video_primary
     checkpoint_required: true
     human_approval_default: true
