@@ -34,7 +34,7 @@ import lib.capability_slots as cs
 from lib.resume import resume_plan
 from lib.submission_ledger import SubmissionLedger
 from shortdrama import cli
-from shortdrama.driver import Driver
+from shortdrama.driver import Driver, classify_provider_error
 from shortdrama.errors import ApiError, ErrorCode
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -592,17 +592,15 @@ def test_over_budget_pauses_before_any_spend(projects, bindings):
     error = raised.value
     assert error.code == ErrorCode.BUDGET_EXCEEDED
     assert error.recovery == "ask-human"
-    assert error.context["stage"] == "shot_gen"
-    assert error.context["worst_case"] > error.context["budget"]
-    # The free stages before the first paid slot ran; the paid call did not.
-    assert [tool for tool, _inputs in calls] == ["img_key", "img_ref", "img_key"]
-    assert error.side_effects == "partial"
+    # The whole-run estimate is checked before the first call, so a shortfall
+    # is reported instead of being discovered after several paid shots.
+    assert error.context["budget"] == pytest.approx(0.001)
+    assert error.context["estimate"]["worst_case_usd"] > error.context["budget"]
+    assert calls == []
+    assert error.side_effects == "none"
     ledger = SubmissionLedger("demo", "ep01", projects)
     assert ledger.reserved_total("USD") == 0.0
-    assert all(
-        record["billing_state"] == "free"
-        for record in ledger._latest().values()
-    )
+    assert ledger._latest() == {}
 
 
 def test_unknown_price_pauses_instead_of_spending_blind(projects, tmp_path, monkeypatch):
@@ -1068,3 +1066,108 @@ def test_shot_gen_visual_gate_passes_with_a_clean_verdict(projects, bindings):
     )
     driver = Driver("demo", "ep01", projects_dir=projects, profile="alpha")
     driver._preflight_stage("shot_gen")  # must not raise
+
+
+def test_cost_preview_prices_each_pending_item(projects, bindings):
+    driver = Driver("demo", "ep01", projects_dir=projects, profile="alpha",
+                    executor=ok_executor([]))
+    preview = driver.cost_preview(["shot_gen", "assembly"])
+
+    video = next(row for row in preview["rows"]
+                 if row["stage"] == "shot_gen" and row["slot"] == "video_primary")
+    assert video["item_count"] == 1
+    assert video["estimated_cny"] == pytest.approx(2.0)
+    assert preview["estimated_cny"] >= 2.0
+    # Worst case carries the declared retry allowance.
+    assert preview["worst_case_cny"] == pytest.approx(
+        preview["estimated_cny"] * (1 + driver.retries)
+    )
+
+
+def test_cost_preview_prices_reused_items_at_zero(projects, bindings):
+    def writing_executor(tool: str, inputs: dict) -> dict:
+        output = Path(inputs["output_path"])
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(b"fake-clip")
+        return {"success": True, "task_id": f"task-{output.name}", "cost_cny": 0.1,
+                "artifacts": [str(output)]}
+
+    Driver("demo", "ep01", projects_dir=projects, profile="alpha",
+           executor=writing_executor).run(
+        real=True, approve_live=True, budget_usd=50.0, start_at="shot_gen",
+        stop_after="shot_gen")
+
+    driver = Driver("demo", "ep01", projects_dir=projects, profile="alpha",
+                    executor=ok_executor([]))
+    preview = driver.cost_preview(["shot_gen"])
+    video = next(row for row in preview["rows"] if row["slot"] == "video_primary")
+    assert video["items"][0]["reused"] is True
+    assert video["items"][0]["estimated_cny"] == 0.0
+    assert video["estimated_cny"] == 0.0
+
+
+def test_per_item_cost_ceiling_blocks_without_spending(projects, bindings):
+    calls: list = []
+    driver = Driver("demo", "ep01", projects_dir=projects, profile="alpha",
+                    executor=ok_executor(calls), max_item_cost_cny=0.5)
+    with pytest.raises(ApiError) as raised:
+        driver.run(real=True, approve_live=True, budget_usd=50.0,
+                   start_at="shot_gen", stop_after="shot_gen")
+    assert raised.value.code == ErrorCode.BUDGET_EXCEEDED
+    assert raised.value.context["max_item_cost_cny"] == pytest.approx(0.5)
+    assert calls == []
+
+
+def test_content_error_is_remembered_and_never_retried_unchanged(projects, bindings):
+    calls: list = []
+
+    def rejecting_executor(tool: str, inputs: dict) -> dict:
+        calls.append((tool, inputs))
+        raise RuntimeError("InvalidParameter: duration out of range")
+
+    driver = Driver("demo", "ep01", projects_dir=projects, profile="alpha",
+                    executor=rejecting_executor)
+    with pytest.raises(ApiError) as raised:
+        driver.run(real=True, approve_live=True, budget_usd=50.0,
+                   start_at="shot_gen", stop_after="shot_gen")
+    assert raised.value.context["error_kind"] == "content"
+    assert raised.value.recovery == "do-X-first"
+    assert len(calls) == 1
+    memo = projects / "demo" / "ep01" / "failed_inputs.json"
+    assert memo.is_file()
+
+    # A content rejection never produced a billable task, but the ledger only
+    # knows the submission failed; reconcile it as free before resuming.
+    ledger = SubmissionLedger("demo", "ep01", projects)
+    for entry in ledger.unknown_entries():
+        ledger.mark_result(entry["entry_id"], "free")
+
+    calls.clear()
+    with pytest.raises(ApiError) as second:
+        driver.run(real=True, approve_live=True, budget_usd=50.0,
+                   start_at="shot_gen", stop_after="shot_gen")
+    assert second.value.code == ErrorCode.BATCH_PRECONDITION_FAILED
+    assert second.value.context["prior_error"]
+    assert calls == [], "a content-rejected input must not be re-submitted"
+
+
+def test_quota_error_is_not_memoized_as_a_content_error(projects, bindings):
+    def quota_executor(tool: str, inputs: dict) -> dict:
+        return {"success": False,
+                "error": "AllocationQuota.FreeTierOnly: free quota exhausted",
+                "cost_cny": 0.0}
+
+    driver = Driver("demo", "ep01", projects_dir=projects, profile="alpha",
+                    executor=quota_executor)
+    with pytest.raises(ApiError) as raised:
+        driver.run(real=True, approve_live=True, budget_usd=50.0,
+                   start_at="shot_gen", stop_after="shot_gen")
+    assert raised.value.context["error_kind"] == "quota"
+    assert not (projects / "demo" / "ep01" / "failed_inputs.json").exists()
+
+
+def test_classify_provider_error():
+    assert classify_provider_error("InvalidParameter: bad ratio") == "content"
+    assert classify_provider_error("Arrearage: account in arrears") == "quota"
+    assert classify_provider_error("ReadTimeout") == "transient"
+    assert classify_provider_error("something odd") == "unknown"
