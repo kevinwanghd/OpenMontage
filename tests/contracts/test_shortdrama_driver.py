@@ -383,7 +383,7 @@ def test_mock_resolves_slots_through_profile_not_provider_names(projects, bindin
     driver = Driver("demo", "ep01", projects_dir=projects, profile="alpha")
     plan = driver.plan()
     by_stage = {stage["stage"]: stage for stage in plan["stages"]}
-    assert by_stage["shot_gen"]["slots"][0]["tool"] == "alpha_video"
+    assert next(x for x in by_stage["shot_gen"]["slots"] if x["slot"]=="video_primary")["tool"] == "alpha_video"
     assert by_stage["assembly"]["slots"][0]["slot"] == "tts_voice"
     assert plan["unresolved_slots"] == 0
 
@@ -701,7 +701,7 @@ def test_profile_switch_changes_tool_but_not_pipeline_yaml(projects, bindings):
 
     def shot_tool(result: dict) -> str:
         stage = next(s for s in result["stages"] if s["stage"] == "shot_gen")
-        return stage["slots"][0]["tool"]
+        return next(x for x in stage["slots"] if x["slot"]=="video_primary")["tool"]
 
     assert shot_tool(alpha) == "alpha_video"
     assert shot_tool(beta) == "beta_video"
@@ -743,3 +743,239 @@ def test_fallback_and_degradation_are_recorded_before_execution(projects, bindin
 
     # The log is written before the first paid call.
     assert execution_order[0] == "img_key"
+
+# ---------------------------------------------------------------------------
+# 9. review gate: a generation stage stops the run until a human approves
+# ---------------------------------------------------------------------------
+
+
+def artifact_executor(calls: list) -> callable:
+    """Executor that reports the tool's output file like the live registry."""
+
+    def execute(tool: str, inputs: dict) -> dict:
+        calls.append((tool, inputs))
+        output = inputs.get("output_path")
+        return {
+            "success": True,
+            "task_id": f"task-{inputs['stage']}-{inputs['slot']}",
+            "cost_cny": 0.0,
+            "artifacts": [output] if output else [],
+        }
+
+    return execute
+
+
+def test_pause_for_review_writes_awaiting_human_and_stops(projects, bindings):
+    calls: list = []
+    driver = Driver("demo", "ep01", projects_dir=projects,
+                    executor=artifact_executor(calls))
+
+    result = driver.run(real=True, approve_live=True, budget_usd=5.0,
+                        pause_for_review=True)
+
+    assert result["status"] == "waiting-for-review"
+    assert result["waiting_for"] == "character_cast"
+    assert [inputs["stage"] for _, inputs in calls] == ["character_cast"]
+
+    checkpoint = json.loads(
+        (projects / "demo" / "checkpoint_character_cast.json").read_text(encoding="utf-8")
+    )
+    assert checkpoint["status"] == "awaiting_human"
+    assert checkpoint["human_approved"] is False
+    generated = checkpoint["artifacts"]["generated"]
+    assert generated["image_character_key"], "generated files must be reviewable"
+    assert checkpoint["cost_snapshot"]["spent"] >= 0
+
+
+def test_awaiting_review_stage_is_never_re_executed(projects, bindings):
+    calls: list = []
+    Driver("demo", "ep01", projects_dir=projects,
+           executor=artifact_executor(calls)).run(
+        real=True, approve_live=True, budget_usd=5.0, pause_for_review=True
+    )
+    calls.clear()
+
+    again = Driver("demo", "ep01", projects_dir=projects,
+                   executor=artifact_executor(calls)).run(
+        real=True, approve_live=True, budget_usd=5.0, pause_for_review=True
+    )
+
+    assert again["status"] == "waiting-for-review"
+    assert again["waiting_for"] == "character_cast"
+    assert calls == [], "an unreviewed stage must not be paid for twice"
+
+
+def test_approving_the_checkpoint_resumes_at_the_next_generation_stage(projects, bindings):
+    calls: list = []
+    Driver("demo", "ep01", projects_dir=projects,
+           executor=artifact_executor(calls)).run(
+        real=True, approve_live=True, budget_usd=5.0, pause_for_review=True
+    )
+
+    code = cli.main([
+        "--projects-dir", str(projects),
+        "checkpoint", "approve", "--project", "demo",
+        "--stage", "character_cast", "--note", "key images match the cards", "--json",
+    ])
+    assert code == 0
+    checkpoint = json.loads(
+        (projects / "demo" / "checkpoint_character_cast.json").read_text(encoding="utf-8")
+    )
+    assert checkpoint["status"] == "completed"
+    assert checkpoint["human_approved"] is True
+    assert checkpoint["metadata"]["approved_note"] == "key images match the cards"
+
+    calls.clear()
+    result = Driver("demo", "ep01", projects_dir=projects,
+                    executor=artifact_executor(calls)).run(
+        real=True, approve_live=True, budget_usd=5.0, pause_for_review=True
+    )
+    assert result["status"] == "waiting-for-review"
+    assert result["waiting_for"] == "keyframe"
+    # keyframe runs both of its declared slots; the previous stage is not re-run.
+    assert {inputs["stage"] for _, inputs in calls} == {"keyframe"}
+    assert {inputs["slot"] for _, inputs in calls} == {
+        "image_reference", "image_character_key",
+    }
+
+
+def test_checkpoint_approve_rejects_unknown_stage(projects, capsys):
+    code = cli.main([
+        "--projects-dir", str(projects),
+        "checkpoint", "approve", "--project", "demo",
+        "--stage", "character_cast", "--json",
+    ])
+    assert code == 2
+    assert json.loads(capsys.readouterr().err)["code"] == ErrorCode.VALIDATION_ERROR.value
+
+
+def test_ledger_reconcile_unblocks_the_next_real_run(projects, bindings):
+    def failing(_tool: str, _inputs: dict) -> dict:
+        raise RuntimeError("provider transport died after submit")
+
+    with pytest.raises(ApiError):
+        Driver("demo", "ep01", projects_dir=projects, profile="alpha",
+               executor=failing).run(real=True, approve_live=True, budget_usd=5.0)
+    entry_id = SubmissionLedger("demo", "ep01", projects).unknown_entries()[0]["entry_id"]
+
+    code = cli.main([
+        "--projects-dir", str(projects), "ledger", "reconcile",
+        "--project", "demo", "--episode", "ep01",
+        "--entry-id", entry_id, "--state", "free",
+        "--note", "provider console: request rejected, no charge", "--json",
+    ])
+    assert code == 0
+    plan = resume_plan("demo", "ep01", projects_dir=projects, pipeline_type="short-drama")
+    assert plan["mode"] == "run"
+
+    calls: list = []
+    Driver("demo", "ep01", projects_dir=projects, profile="alpha",
+           executor=ok_executor(calls)).run(real=True, approve_live=True, budget_usd=5.0)
+    assert calls, "the reconciled run must be able to proceed"
+
+
+def test_ledger_reconcile_refuses_non_unknown_entries(projects, bindings, capsys):
+    calls: list = []
+    Driver("demo", "ep01", projects_dir=projects, profile="alpha",
+           executor=ok_executor(calls)).run(real=True, approve_live=True, budget_usd=5.0)
+    resolved = [
+        entry for entry in SubmissionLedger("demo", "ep01", projects)._latest().values()
+        if entry["billing_state"] in ("billed", "free")
+    ][0]
+
+    code = cli.main([
+        "--projects-dir", str(projects), "ledger", "reconcile",
+        "--project", "demo", "--episode", "ep01",
+        "--entry-id", resolved["entry_id"], "--state", "free", "--json",
+    ])
+    assert code == 2
+    assert json.loads(capsys.readouterr().err)["code"] == ErrorCode.VALIDATION_ERROR.value
+
+
+def test_start_at_shot_gen_without_keyframes_uses_text_to_video(projects, bindings):
+    (projects / "demo" / "ep01" / "artifacts" / "asset_manifest.json").unlink()
+    _approved_checkpoint(projects, "character_cast", {})
+    _approved_checkpoint(projects, "keyframe", {})
+
+    calls: list = []
+    driver = Driver("demo", "ep01", projects_dir=projects, profile="alpha",
+                    executor=ok_executor(calls), keyframes_required=False)
+    result = driver.run(real=True, approve_live=True, budget_usd=5.0,
+                        pause_for_review=True, start_at="shot_gen")
+
+    assert result["waiting_for"] == "shot_gen"
+    assert [inputs["stage"] for _, inputs in calls] == ["shot_gen"]
+    assert calls[0][1]["operation"] == "text_to_video"
+    assert calls[0][1]["ratio"] == "9:16"
+
+
+def test_driver_does_not_send_the_catalog_model_id_as_a_tool_input(projects, bindings):
+    """``dashscope/wan3.0-video`` is a catalog id; providers reject it (400)."""
+    calls: list = []
+    Driver("demo", "ep01", projects_dir=projects, profile="alpha",
+           executor=ok_executor(calls)).run(
+        real=True, approve_live=True, budget_usd=5.0)
+    assert calls
+    for _, inputs in calls:
+        if "model" in inputs:
+            assert "/" not in str(inputs["model"])
+
+
+def test_resuming_a_paused_stage_reuses_completed_items(projects, bindings):
+    """A half-done stage must not re-pay for items already on disk."""
+    calls: list = []
+
+    def writing_executor(tool: str, inputs: dict) -> dict:
+        calls.append((tool, inputs))
+        output = Path(inputs["output_path"])
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(b"fake-clip")
+        return {"success": True, "task_id": f"task-{len(calls)}", "cost_cny": 0.1,
+                "artifacts": [str(output)]}
+
+    Driver("demo", "ep01", projects_dir=projects, profile="alpha",
+           executor=writing_executor).run(
+        real=True, approve_live=True, budget_usd=5.0, start_at="shot_gen",
+        stop_after="shot_gen")
+    assert len(calls) == 1
+
+    def should_not_run(*_args, **_kwargs):
+        raise AssertionError("re-executed an item that already succeeded")
+
+    result = Driver("demo", "ep01", projects_dir=projects, profile="alpha",
+                    executor=should_not_run).run(
+        real=True, approve_live=True, budget_usd=5.0, start_at="shot_gen",
+        stop_after="shot_gen")
+    shot_gen = next(s for s in result["stages"] if s["stage"] == "shot_gen")
+    video = next(x for x in shot_gen["slots"] if x["slot"]=="video_primary")
+    assert video["items"][0]["reused"] is True
+    assert video["items"][0]["artifacts"]
+
+
+def test_synchronous_tool_needs_no_task_id(projects, bindings, monkeypatch):
+    """Image APIs return their receipt inline; a missing task id is not UNKNOWN."""
+    driver = Driver("demo", "ep01", projects_dir=projects, profile="alpha",
+                    executor=ok_executor([]))
+    monkeypatch.setattr(driver, "_requires_task_id", lambda tool: False)
+    result = driver.run(real=True, approve_live=True, budget_usd=5.0,
+                        stop_after="shot_gen")
+    shot_gen = next(s for s in result["stages"] if s["stage"] == "shot_gen")
+    video = next(x for x in shot_gen["slots"] if x["slot"]=="video_primary")
+    assert video["items"][0]["billing_state"] in ("billed", "free")
+
+
+def test_continuity_gate_blocks_unknown_character_before_spend(projects, bindings):
+    plan_path = projects / "demo" / "ep01" / "artifacts" / "scene_plan.json"
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    plan["shots"][0]["reference_character_ids"] = ["ch_ghost"]
+    plan_path.write_text(json.dumps(plan), encoding="utf-8")
+
+    calls: list = []
+    driver = Driver("demo", "ep01", projects_dir=projects, profile="alpha",
+                    executor=ok_executor(calls))
+    with pytest.raises(ApiError) as raised:
+        driver.run(real=True, approve_live=True, budget_usd=5.0,
+                   start_at="shot_gen")
+    assert raised.value.code == ErrorCode.BATCH_PRECONDITION_FAILED
+    assert raised.value.context["continuity_errors"]
+    assert calls == [], "continuity gate must fire before any provider call"

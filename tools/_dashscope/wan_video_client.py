@@ -40,6 +40,13 @@ SUPPORTED_OPERATIONS = ("text_to_video", "image_to_video")
 OPERATION_ALIASES = {"first_frame": "image_to_video"}
 
 SUPPORTED_RESOLUTIONS = ("480p", "720p", "1080p")
+# wan2.7/3.0 replaced the deprecated ``size`` field with resolution + ratio.
+# 480P + 9:16 was measured on 2026-11-13 to produce a 480x854 portrait clip.
+SUPPORTED_RATIOS = ("16:9", "9:16", "1:1", "4:3", "3:4")
+#: wan2.7 has no 480P tier; anything lower is raised to 720P.
+WAN27_MIN_RESOLUTION = "720p"
+_RESOLUTION_RANK = {"480p": 1, "720p": 2, "1080p": 3}
+
 RESOLUTION_PRICES_CNY_PER_SECOND = {
     "480p": 0.30,
     "720p": 0.60,
@@ -82,6 +89,18 @@ def normalize_resolution(resolution: Optional[str]) -> str:
     return canonical
 
 
+def normalize_ratio(ratio: Optional[str]) -> Optional[str]:
+    """Return a canonical aspect ratio, or None to use the provider default."""
+    if ratio is None:
+        return None
+    value = str(ratio).strip()
+    if value not in SUPPORTED_RATIOS:
+        raise ValueError(
+            f"unsupported ratio {ratio!r}; expected {list(SUPPORTED_RATIOS)}"
+        )
+    return value
+
+
 def cny_price(resolution: str, duration_seconds: float) -> float:
     """Estimated CNY spend for one clip at the Bailian price sheet."""
     return (
@@ -102,6 +121,8 @@ def build_request_payload(
     seed: Optional[int] = None,
     prompt_extend: bool = True,
     watermark: bool = False,
+    ratio: Optional[str] = None,
+    audio_url: Optional[str] = None,
 ) -> dict[str, Any]:
     """Map tool inputs onto the DashScope async video-synthesis payload.
 
@@ -119,6 +140,8 @@ def build_request_payload(
             "(reference_image_url or reference_image_path)"
         )
 
+    # wan2.7 uses a different contract: 720P/1080P only, and reference images
+    # go through ``input.media`` with a typed slot instead of ``input.img_url``.
     parameters: dict[str, Any] = {
         # DashScope spells resolutions uppercase (480P), not 480p.
         "resolution": canonical_resolution.upper(),
@@ -126,14 +149,44 @@ def build_request_payload(
         "prompt_extend": bool(prompt_extend),
         "watermark": bool(watermark),
     }
+    canonical_ratio = normalize_ratio(ratio)
+    if canonical_ratio:
+        parameters["ratio"] = canonical_ratio
     if negative_prompt:
         parameters["negative_prompt"] = negative_prompt
     if seed is not None:
         parameters["seed"] = int(seed)
 
     video_input: dict[str, Any] = {"prompt": str(prompt)}
-    if image_url:
+    if model.startswith("wan2.7"):
+        # 480P does not exist on 2.7; the nearest supported tier is 720P.
+        if _RESOLUTION_RANK.get(canonical_resolution, 0) < _RESOLUTION_RANK["720p"]:
+            parameters["resolution"] = WAN27_MIN_RESOLUTION.upper()
+        if image_url:
+            video_input["media"] = [{"type": "first_frame", "url": image_url}]
+        parameters.pop("ratio", None)  # the reference image sets the aspect
+    elif model.startswith("happyhorse"):
+        # happyhorse r2v takes a subject/reference image, 720P/1080P only and
+        # a 3-15s duration; anything below 3s is rejected by the provider.
+        if _RESOLUTION_RANK.get(canonical_resolution, 0) < _RESOLUTION_RANK["720p"]:
+            parameters["resolution"] = WAN27_MIN_RESOLUTION.upper()
+        parameters["duration"] = max(int(duration_seconds), 3)
+        if "t2v" in model:
+            # text-to-video keeps the ratio: 9:16 yields a vertical clip
+            pass
+        elif image_url and "r2v" in model:
+            video_input["media"] = [{"type": "reference_image", "url": image_url}]
+            parameters.pop("ratio", None)
+        elif image_url:
+            video_input["media"] = [{"type": "first_frame", "url": image_url}]
+            parameters.pop("ratio", None)
+    elif image_url:
         video_input["img_url"] = image_url
+
+    if audio_url and not model.startswith("wan2.7") and not model.startswith("happyhorse"):
+        # wan3.0 speaks the supplied track: mouth shapes follow the audio,
+        # which is what turns a silent shot into on-screen dialogue.
+        video_input["audio_url"] = audio_url
 
     return {"model": model, "input": video_input, "parameters": parameters}
 
@@ -261,7 +314,13 @@ class LiveWanTransport:
             json=payload,
             timeout=self.timeout,
         )
-        response.raise_for_status()
+        if response.status_code >= 400:
+            # Surface the provider's message; a bare "400 Bad Request" hides
+            # whether the cause is a bad model id, an arrears block, or a
+            # parameter rejection, and costs a debugging cycle each time.
+            raise RuntimeError(
+                f"DashScope {response.status_code}: {response.text[:400]}"
+            )
         data = response.json()
         task_id = (data.get("output") or {}).get("task_id")
         if not task_id:

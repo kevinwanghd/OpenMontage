@@ -34,7 +34,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from lib import capability_slots as slots
-from lib.checkpoint import PROJECTS_DIR, read_checkpoint
+from lib.checkpoint import PROJECTS_DIR, read_checkpoint, write_checkpoint
 from lib.decision_log import DecisionEntry, DecisionLog
 from lib.pipeline_loader import (
     get_stage_order,
@@ -106,6 +106,7 @@ class Driver:
         cny_per_usd: float = DEFAULT_CNY_PER_USD,
         currency: str = "USD",
         clip_duration_s: float = 5.0,
+        keyframes_required: bool = True,
     ) -> None:
         self.project = project
         self.episode = episode
@@ -115,6 +116,14 @@ class Driver:
         self.cny_per_usd = float(cny_per_usd)
         self.currency = currency
         self.clip_duration_s = float(clip_duration_s)
+        # Declared fallback for a blocked image slot: animate from the shot
+        # text instead of a reviewed keyframe. Quality differs; the run JSON
+        # records it so the operator never mistakes it for the normal path.
+        self.keyframes_required = bool(keyframes_required)
+        # Code-level QA validates real media on disk. A test/rehearsal injects a
+        # fake executor that produces no files, so QA is only meaningful when
+        # the real registry executor runs.
+        self.qa_enabled = executor is None
         self._executor = executor or self._registry_executor
         self.executed = 0
         self.manifest = load_pipeline_readonly(PIPELINE_NAME)
@@ -148,6 +157,14 @@ class Driver:
         operation = required[0] if required else None
         profile = self.profile or slots.active_profile()
         return slots.resolve(slot, profile, operation=operation)
+
+    def _slot_required(self, slot: str) -> bool:
+        """Manifest-declared requirement; unknown slots stay required (fail loud)."""
+        try:
+            definition = slots.slot_definition(slot)
+        except Exception:
+            return True
+        return bool(definition.get("required", True))
 
     def _cost_row(self, slot: str) -> Optional[dict[str, Any]]:
         """The cost-comparison row for the binding this slot currently resolves to."""
@@ -197,8 +214,17 @@ class Driver:
         real: bool = False,
         approve_live: bool = False,
         budget_usd: Optional[float] = None,
+        pause_for_review: bool = False,
+        stop_after: Optional[str] = None,
+        start_at: Optional[str] = None,
     ) -> dict[str, Any]:
-        """Run all nine stages; mock by default, live only with explicit consent."""
+        """Run all nine stages; mock by default, live only with explicit consent.
+
+        ``pause_for_review`` honours the manifest's ``manual_all`` checkpoint
+        policy: a stage that made provider calls writes an ``awaiting_human``
+        checkpoint and the run stops there, so no later stage can spend money
+        on unreviewed assets. ``stop_after`` is the automation escape hatch.
+        """
         if real:
             self._require_live_approval(approve_live, budget_usd)
             self._budget_usd = float(budget_usd)
@@ -242,7 +268,17 @@ class Driver:
             )
 
         start = 0
-        if resume["stage"] in self.stage_order:
+        if start_at:
+            if start_at not in self.stage_order:
+                raise ApiError(
+                    ErrorCode.VALIDATION_ERROR,
+                    f"start_at stage {start_at!r} is not in this pipeline",
+                    f"choose one of {self.stage_order}",
+                    recovery="fix-then-retry",
+                    exit_code=2,
+                )
+            start = self.stage_order.index(start_at)
+        elif resume["stage"] in self.stage_order:
             start = self.stage_order.index(resume["stage"])
         elif resume["stage"] is None:
             result["status"] = "already-complete"
@@ -252,6 +288,17 @@ class Driver:
         ledger = SubmissionLedger(self.project, self.episode, self.projects_dir)
 
         for stage in self.stage_order[start:]:
+            pending = read_checkpoint(self.projects_dir, self.project, stage)
+            if (
+                pending
+                and pending.get("status") == "awaiting_human"
+                and self.stage_slots(stage)
+            ):
+                # The previous run already spent money on this stage; review it
+                # before any re-execution, never re-pay for the same work.
+                result["status"] = "waiting-for-review"
+                result["waiting_for"] = stage
+                break
             stage_entry: dict[str, Any] = {
                 "index": self.stage_order.index(stage) + 1,
                 "stage": stage,
@@ -264,7 +311,38 @@ class Driver:
             stage_entry["executed"] = any(
                 item.get("executed") for item in stage_entry["slots"]
             )
+            if (stage_entry["executed"] and self.qa_enabled
+                    and stage in ("shot_gen", "assembly")):
+                from shortdrama import qa
+
+                verdict = qa.review(
+                    self.projects_dir / self.project, stage, episode=self.episode
+                )
+                stage_entry["qa"] = verdict
+                if not verdict["passed"]:
+                    raise self._pause(
+                        ErrorCode.BATCH_PRECONDITION_FAILED,
+                        f"automatic QA rejected stage '{stage}' "
+                        f"({len(verdict['blocking'])} blocking issue(s))",
+                        "fix the listed shots and re-run; the reviewer agent "
+                        "handles visual judgement, this gate is deterministic",
+                        recovery="do-X-first",
+                        side_effects="partial",
+                        context={"stage": stage, "qa": verdict},
+                    )
+            if stage_entry["executed"] and pause_for_review:
+                stage_entry["checkpoint"] = str(
+                    self._write_review_checkpoint(stage, stage_entry, ledger)
+                )
             result["stages"].append(stage_entry)
+            if stage_entry["executed"] and pause_for_review:
+                result["status"] = "waiting-for-review"
+                result["waiting_for"] = stage
+                break
+            if stop_after == stage:
+                result["status"] = "stopped"
+                result["stopped_after"] = stage
+                break
 
         result["external_api_calls"] = self.executed
         result["budget"] = self._budget_summary(ledger)
@@ -342,6 +420,8 @@ class Driver:
         """
         declared = self._stage_decl(stage)
         required = [str(name) for name in declared.get("required_artifacts_in") or []]
+        if not self.keyframes_required and stage == "shot_gen":
+            required = [name for name in required if name != "asset_manifest"]
         missing = content.missing_artifacts(
             self.projects_dir, self.project, self.episode, required
         )
@@ -360,6 +440,17 @@ class Driver:
                     "missing_artifacts": missing,
                     "artifacts_dir": str(artifacts_dir),
                 },
+            )
+        errors = self._continuity_errors(stage)
+        if errors:
+            raise self._pause(
+                ErrorCode.BATCH_PRECONDITION_FAILED,
+                f"continuity gate failed at stage '{stage}': " + "; ".join(errors),
+                "fix the scene_plan / keyframes / character registry so identity, "
+                "props and scene stay consistent, then re-run",
+                recovery="do-X-first",
+                side_effects="none",
+                context={"stage": stage, "continuity_errors": errors},
             )
         if self.stage_slots(stage):
             return
@@ -394,6 +485,29 @@ class Driver:
             },
         )
 
+    def _continuity_errors(self, stage: str) -> list[str]:
+        """Machine-checkable identity/scene/keyframe invariants, pre-spend."""
+        from shortdrama import continuity
+
+        artifacts = self._artifacts()
+        scene_plan = artifacts.get("scene_plan")
+        if not scene_plan:
+            return []
+        known = continuity.character_ids(artifacts)
+        known |= set(
+            content._character_cards(
+                self.projects_dir, self.project, self.episode, artifacts
+            )
+        )
+        errors: list[str] = []
+        if stage in ("keyframe", "shot_gen", "assembly"):
+            errors += continuity.validate_scene_plan(scene_plan, known)
+        if stage in ("shot_gen", "assembly") and self.keyframes_required:
+            errors += continuity.validate_keyframes(
+                scene_plan, artifacts.get("asset_manifest")
+            )
+        return errors
+
     def _slot_items(self, stage: str, slot: str) -> list[WorkItem]:
         try:
             return content.build_work_items(
@@ -403,6 +517,7 @@ class Driver:
                 projects_dir=self.projects_dir,
                 project=self.project,
                 episode=self.episode,
+                keyframes_required=self.keyframes_required,
             )
         except ContentError as exc:
             raise self._pause(
@@ -430,6 +545,11 @@ class Driver:
         try:
             tool = self._resolve(slot)
         except slots.CapabilitySlotsError as exc:
+            if not self._slot_required(slot):
+                # Optional slots (e.g. a music bed) must not block a paid run.
+                item["skipped"] = True
+                item["error"] = str(exc)
+                return item
             raise self._pause(
                 ErrorCode.BATCH_PRECONDITION_FAILED,
                 f"no usable binding for slot '{slot}' at stage '{stage}': {exc}",
@@ -465,6 +585,10 @@ class Driver:
             )
 
         work_items = self._slot_items(stage, slot)
+        if not work_items and slot == "tts_voice":
+            # No on-screen dialogue / voiceover in this episode: nothing to say.
+            item["skipped"] = True
+            return item
         if not work_items:
             raise self._pause(
                 ErrorCode.BATCH_PRECONDITION_FAILED,
@@ -538,6 +662,23 @@ class Driver:
         item["estimated_cny"] = round(float(row.get("estimated_cny") or 0.0), 4)
         item["worst_case_usd"] = worst_usd
 
+        # A stage paused mid-way (budget or crash) must resume, not re-pay.
+        # The input hash already covers the content, so a resolved entry with
+        # the same hash plus an existing output file means this exact item was
+        # produced; a changed prompt hashes differently and is generated again.
+        existing = self._already_produced(
+            ledger, stage, slot, tool, work_item, model=row.get("model")
+        )
+        if existing is not None:
+            item.update(
+                {
+                    "reused": True,
+                    "artifacts": existing,
+                    "billing_state": "reused",
+                }
+            )
+            return item
+
         entry = self._reserve(
             ledger,
             stage,
@@ -577,7 +718,10 @@ class Driver:
 
         payload = self._normalize_result(raw)
         tier = str(row.get("tier") or "")
-        needs_task_id = tier not in _LOCAL_TIERS
+        # Only asynchronous submissions can leave billing unknown when a task
+        # id is missing; synchronous tools (image APIs) return their result and
+        # receipt inline, so requiring a task id would falsely block them.
+        needs_task_id = tier not in _LOCAL_TIERS and self._requires_task_id(tool)
 
         if not payload["success"]:
             ledger.mark_submitted(entry["entry_id"], None)
@@ -634,6 +778,62 @@ class Driver:
             }
         )
         return item
+
+    def _requires_task_id(self, tool: str) -> bool:
+        """Async tools prove billing by task id; sync tools do not have one."""
+        try:
+            from tools.tool_registry import registry
+
+            registry.ensure_discovered()
+            registered = registry.get(tool)
+        except Exception:
+            return True
+        if registered is None:
+            return True
+        mode = getattr(registered, "execution_mode", None)
+        if mode is None:
+            return True
+        return str(getattr(mode, "value", mode)).lower() == "async"
+
+    def _already_produced(
+        self,
+        ledger: SubmissionLedger,
+        stage: str,
+        slot: str,
+        tool: str,
+        work_item: WorkItem,
+        model: Optional[str] = None,
+    ) -> Optional[list[str]]:
+        """Artifacts from a resolved prior attempt of this exact content item.
+
+        The model is part of the identity: different models can share the same
+        content hash (the work item is provider-neutral), but the file at the
+        deterministic path may have been overwritten by a different model.
+        Reusing it would ship a clip that no longer matches the reviewed input.
+        """
+        input_hash = self._input_hash(stage, slot, tool, work_item)
+        prior = [
+            record
+            for record in ledger.find_by_input_hash(input_hash)
+            if (
+                record.get("billing_state") == "billed"
+                # A "free" result only proves success when the provider
+                # returned a task id; reconciled failures are also "free".
+                or (record.get("billing_state") == "free" and record.get("task_id"))
+            )
+            and (model is None or record.get("model") == model)
+        ]
+        if not prior:
+            return None
+        output_path = self._slot_inputs(stage, slot, tool, {}, work_item).get(
+            "output_path"
+        )
+        if not output_path:
+            return None
+        path = Path(output_path)
+        if not path.is_file() or path.stat().st_size == 0:
+            return None
+        return [str(path)]
 
     def _reserve(
         self,
@@ -722,6 +922,38 @@ class Driver:
             "retries_included": self.retries,
         }
 
+    def _write_review_checkpoint(
+        self, stage: str, stage_entry: dict[str, Any], ledger: SubmissionLedger
+    ) -> Path:
+        """Persist generated files as an ``awaiting_human`` checkpoint.
+
+        A generated asset is not an approved asset. The manifest gate forbids
+        writing ``completed`` without human approval, so the driver records the
+        work here and stops; approving rewrites the same stage as completed.
+        """
+        generated: dict[str, list[str]] = {}
+        for slot_entry in stage_entry.get("slots") or []:
+            files = [
+                artifact
+                for item in slot_entry.get("items") or []
+                for artifact in item.get("artifacts") or []
+            ]
+            if files:
+                generated[str(slot_entry["slot"])] = files
+        return write_checkpoint(
+            self.projects_dir,
+            self.project,
+            stage,
+            "awaiting_human",
+            {"generated": generated},
+            pipeline_type=PIPELINE_NAME,
+            checkpoint_policy="manual_all",
+            human_approval_required=True,
+            human_approved=False,
+            cost_snapshot=self._budget_summary(ledger),
+            metadata={"driver": "shortdrama.driver", "episode": self.episode},
+        )
+
     # ------------------------------------------------------------------
     # Decision log (NFR-06 / ORC-04): record before executing
     # ------------------------------------------------------------------
@@ -743,7 +975,10 @@ class Driver:
                         duration_s=self.clip_duration_s,
                     )
                 except slots.CapabilitySlotsError as exc:
-                    # Fail before spending: an unresolvable slot cannot run later.
+                    if not self._slot_required(slot):
+                        continue
+                    # Fail before spending: an unresolvable required slot cannot
+                    # run later, so stop before the first paid call.
                     raise self._pause(
                         ErrorCode.BATCH_PRECONDITION_FAILED,
                         f"cannot plan slot '{slot}' at stage '{stage}': {exc}",
@@ -966,7 +1201,18 @@ class Driver:
             "slot": slot,
             "tool": tool,
             "profile": self.profile or slots.active_profile(),
-            "model": row.get("model"),
+            # A catalog id (provider/model) is not a provider model name; only
+            # pass plain tool-level models declared by the binding itself.
+            **(
+                {"model": row["tool_model"]}
+                if row.get("tool_model")
+                else {}
+            ),
+            **(
+                {"fallback_models": list(row["fallback_models"])}
+                if row.get("fallback_models")
+                else {}
+            ),
             "output_dir": str(self.projects_dir / self.project / self.episode / "assets"),
             "budget_usd": self._budget_usd,
             "approve_live": True,

@@ -54,6 +54,9 @@ om profile list     [--json]
 om profile use      name [--yes] [--json]
 om demo             [--mock] [--json]
 om demo             --real --approve-live --budget-usd BUDGET [--profile PROFILE] [--json]
+om checkpoint approve --project P --stage STAGE [--note TEXT] [--json]
+om ledger reconcile --project P --episode E --entry-id ID --state free|billed [--note TEXT] [--json]
+om qa               --project P [--stage S] [--episode E] [--json]
 om serve            [--host HOST] [--port PORT] [--allow-remote] [--auth-token TOKEN]
                     [--projects-dir PROJECTS_DIR] [--json]
 ```
@@ -448,7 +451,41 @@ om demo --mock --json
 
 ---
 
-## 17. Windows 说明
+## 17. `om checkpoint approve`
+
+```
+usage: om checkpoint approve [-h] --project PROJECT --stage STAGE [--note NOTE] [--json]
+```
+
+把生成阶段写下的 `awaiting_human` 检查点推进为 `completed` + `human_approved=True`。
+用于自动审片通过后由 agent 推进，不需要人工逐项确认。
+
+## 18. `om ledger reconcile`
+
+```
+usage: om ledger reconcile [-h] --project P --episode E --entry-id ID --state free|billed [--note NOTE] [--force] [--json]
+```
+
+provider 拒绝或崩溃后账本进入 `reconcile`；结算该条目后才能继续真实运行。只允许结算
+`unknown` 条目，非 `unknown` 需 `--force`。
+
+## 19. `om qa`
+
+```
+usage: om qa [-h] --project PROJECT [--stage {keyframe,shot_gen,assembly,delivery}] [--episode EPISODE] [--json]
+```
+
+自动审片门禁：确定性检查（画幅、时长、对白音轨、字幕时长、连续性引用）加审片 agent
+持久化的 `artifacts/qa_visual.json`。`passed=false` 时退出码 `1`，driver 在
+`shot_gen` / `assembly` 后自动调用同一套检查。
+
+```powershell
+om qa --project the-voicemail-m1 --stage shot_gen --json
+```
+
+---
+
+## 20. Windows 说明
 
 - PowerShell 中直接调用 `om` 需要先激活 venv 或把 `Scripts` 加进 PATH；否则用
   `.\.venv\Scripts\python.exe -m shortdrama ...`。

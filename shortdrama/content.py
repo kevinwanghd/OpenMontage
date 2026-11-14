@@ -274,34 +274,83 @@ def _keyframe_items(
     return items
 
 
+def _shot_tts_items(scene_plan: dict[str, Any]) -> list[WorkItem]:
+    """One dialogue TTS item per shot that speaks on screen (shot_gen stage).
+
+    Producing the track here -- before video_primary in the same stage -- is
+    what makes audio-driven lipsync possible; assembly no longer has to guess.
+    """
+    items: list[WorkItem] = []
+    for shot in _shots(scene_plan):
+        dialogue = shot.get("dialogue")
+        if not isinstance(dialogue, dict):
+            continue
+        text = (dialogue.get("text") or "").strip()
+        if not text:
+            continue
+        items.append(
+            WorkItem(
+                _shot_id(shot),
+                {"text": text, "speaker": dialogue.get("speaker")},
+            )
+        )
+    return items
+
+
 def _shot_items(
-    scene_plan: dict[str, Any], asset_manifest: Optional[dict[str, Any]]
+    scene_plan: dict[str, Any],
+    asset_manifest: Optional[dict[str, Any]],
+    *,
+    keyframes_required: bool = True,
+    characters: Optional[dict[str, dict[str, Any]]] = None,
+    audio_path_for=None,
 ) -> list[WorkItem]:
-    keyframes = _approved_keyframes(asset_manifest)
+    keyframes = _approved_keyframes(asset_manifest) if keyframes_required else {}
     items: list[WorkItem] = []
     missing: list[str] = []
     shot_ids = [_shot_id(shot) for shot in _shots(scene_plan)]
     for shot in _shots(scene_plan):
         shot_id = _shot_id(shot)
         keyframe = keyframes.get(shot_id)
+        if not keyframes_required:
+            duration = max(1.0, min(10.0, float(shot.get("duration_s") or 5.0)))
+            items.append(
+                WorkItem(
+                    shot_id,
+                    {
+                        # Declared fallback: no approved keyframe (image slot
+                        # blocked), so the shot is animated straight from text.
+                        "prompt": _shot_prompt(shot, characters or {}),
+                        "operation": "text_to_video",
+                        "duration_seconds": duration,
+                        "ratio": "9:16",
+                    },
+                )
+            )
+            continue
         if not keyframe:
             missing.append(shot_id)
             continue
         duration = float(shot.get("duration_s") or 5.0)
         duration = max(1.0, min(10.0, duration))
-        items.append(
-            WorkItem(
-                shot_id,
-                {
-                    # No character cards here: shot_gen conditions on the
-                    # approved keyframe, not on a re-invented description.
-                    "prompt": _shot_prompt(shot, {}),
-                    "operation": "first_frame",
-                    "reference_image_path": keyframe,
-                    "duration_seconds": duration,
-                },
-            )
-        )
+        inputs: dict[str, Any] = {
+            # No character cards here: shot_gen conditions on the
+            # approved keyframe, not on a re-invented description.
+            "prompt": _shot_prompt(shot, {}),
+            "operation": "first_frame",
+            "reference_image_path": keyframe,
+            "duration_seconds": duration,
+            # Short drama is always vertical; the provider needs an
+            # explicit ratio (the deprecated size field is ignored).
+            "ratio": "9:16",
+        }
+        if audio_path_for is not None:
+            audio = audio_path_for(shot_id)
+            if audio:
+                # Dialogue track produced by the shot_gen tts_voice slot; the
+                # video model drives mouth shapes from it.
+                inputs["audio_path"] = audio
+        items.append(WorkItem(shot_id, inputs))
     if missing:
         raise ContentError(
             "shot_gen has no approved keyframe for shot(s) "
@@ -344,6 +393,7 @@ def build_work_items(
     projects_dir: Optional[Path] = None,
     project: str = "",
     episode: str = "",
+    keyframes_required: bool = True,
 ) -> list[WorkItem]:
     """Build the ordered work items for one stage/slot pair.
 
@@ -364,12 +414,105 @@ def build_work_items(
         scene_plan = artifacts.get("scene_plan")
         if not scene_plan:
             raise ContentError("shot_gen requires the scene_plan artifact")
-        return _shot_items(scene_plan, artifacts.get("asset_manifest"))
+        assets = _assets_dir(projects_dir, project, episode)
+
+        def audio_path_for(shot_id: str) -> Optional[str]:
+            path = assets / f"shot_gen_tts_voice_{shot_id}.mp3"
+            return str(path) if path.is_file() else None
+
+        return _shot_items(
+            scene_plan,
+            artifacts.get("asset_manifest"),
+            keyframes_required=keyframes_required,
+            characters=_character_cards(projects_dir or Path("."), project, episode, artifacts),
+            audio_path_for=audio_path_for,
+        )
     if slot == "tts_voice":
+        if stage == "shot_gen":
+            scene_plan = artifacts.get("scene_plan")
+            if not scene_plan:
+                raise ContentError("shot_gen tts requires the scene_plan artifact")
+            return _shot_tts_items(scene_plan)
         script = artifacts.get("script")
         if not script:
             raise ContentError("assembly requires the script artifact")
         return _tts_items(script)
+    if slot == "subtitle":
+        return _subtitle_items(artifacts, projects_dir, project, episode)
+    if slot == "compose":
+        return _compose_items(artifacts, projects_dir, project, episode)
     if slot in _SINGLE_ITEM_SLOTS:
         return [WorkItem(f"{slot}_default", {})]
     return []
+
+
+def _assets_dir(
+    projects_dir: Optional[Path], project: str, episode: str
+) -> Path:
+    return (projects_dir or Path(".")) / project / episode / "assets"
+
+
+def _audio_duration(path: Path) -> Optional[float]:
+    """Measured seconds of a local audio track, or None when absent."""
+    if not path.is_file():
+        return None
+    import subprocess
+
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "csv=p=0", str(path)],
+            capture_output=True, text=True, timeout=30,
+        ).stdout.strip()
+        return float(out) if out else None
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+
+
+def _subtitle_items(
+    artifacts: dict[str, Any],
+    projects_dir: Optional[Path],
+    project: str,
+    episode: str,
+) -> list[WorkItem]:
+    """Subtitle cues timed to real TTS audio, not to script page timings."""
+    from shortdrama import continuity
+
+    script = artifacts.get("script")
+    if not script:
+        raise ContentError("subtitle requires the script artifact")
+    assets = _assets_dir(projects_dir, project, episode)
+
+    def duration(section_id) -> Optional[float]:
+        return _audio_duration(assets / f"assembly_tts_voice_{section_id}.mp3")
+
+    segments = continuity.subtitle_segments(script, duration)
+    return [WorkItem("subtitle_default", {"segments": segments, "format": "srt"})]
+
+
+def _compose_items(
+    artifacts: dict[str, Any],
+    projects_dir: Optional[Path],
+    project: str,
+    episode: str,
+) -> list[WorkItem]:
+    """Compose from the approved clips + dialogue tracks + subtitle file."""
+    manifest = artifacts.get("asset_manifest")
+    if not manifest:
+        raise ContentError("compose requires the asset_manifest artifact")
+    assets = _assets_dir(projects_dir, project, episode)
+    clips = [
+        str(assets / f"shot_gen_video_primary_{a['scene_id']}.mp4")
+        for a in manifest.get("assets") or []
+        if isinstance(a, dict) and a.get("type") == "video"
+    ]
+    return [
+        WorkItem(
+            "compose_default",
+            {
+                "operation": "compose",
+                "clips": clips,
+                "subtitle_path": str(assets / "assembly_subtitle_subtitle_default.srt"),
+            },
+        )
+    ]

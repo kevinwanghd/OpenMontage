@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import os
 import time
+
+import requests
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from tools.base_tool import (
     BaseTool,
@@ -124,9 +126,12 @@ class DashscopeImage(BaseTool):
         "Inspect generated image for relevance and quality"
     ]
 
+    #: A Token Plan subscription serves the same API on its own host; honour
+    #: DASHSCOPE_BASE_URL so the plan key is billed against the plan, never
+    #: silently against pay-as-you-go balance.
     ENDPOINT = (
-        "https://dashscope.aliyuncs.com/api/v1/services/aigc/"
-        "multimodal-generation/generation"
+        os.environ.get("DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com").rstrip("/")
+        + "/api/v1/services/aigc/multimodal-generation/generation"
     )
 
     def get_status(self) -> ToolStatus:
@@ -153,7 +158,8 @@ class DashscopeImage(BaseTool):
         start = time.time()
         try:
             payload = self._build_payload(inputs)
-            response = requests.post(
+            response = self._request_with_retry(
+                requests.post,
                 self.ENDPOINT,
                 headers={
                     "Authorization": f"Bearer {api_key}",
@@ -162,7 +168,6 @@ class DashscopeImage(BaseTool):
                 json=payload,
                 timeout=180,
             )
-            response.raise_for_status()
             data = response.json()
 
             image_urls = self._extract_image_urls(data)
@@ -178,8 +183,7 @@ class DashscopeImage(BaseTool):
                 count=len(image_urls),
             )
             for path, url in zip(output_paths, image_urls):
-                download = requests.get(url, timeout=120)
-                download.raise_for_status()
+                download = self._request_with_retry(requests.get, url, timeout=120)
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(download.content)
 
@@ -265,6 +269,38 @@ class DashscopeImage(BaseTool):
             },
             "parameters": parameters,
         }
+
+    #: Transient failures worth an automatic retry; validation/auth are not.
+    _RETRYABLE_HTTP = {429, 500, 502, 503, 504}
+    _MAX_ATTEMPTS = 3
+
+    @classmethod
+    def _request_with_retry(cls, fn, *args, **kwargs):
+        """Retry a request on transient network/HTTP errors with backoff.
+
+        A single dropped connection must not turn a paid image call into a
+        hard failure; validation (4xx) and auth errors are raised immediately.
+        """
+        # Force the exceptions submodule to load; a test (or a partial import)
+        # may have left ``requests`` in sys.modules without ``.exceptions``.
+        import requests.exceptions  # noqa: F401
+
+        last: Optional[Exception] = None
+        for attempt in range(cls._MAX_ATTEMPTS):
+            try:
+                response = fn(*args, **kwargs)
+                response.raise_for_status()
+                return response
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as exc:
+                last = exc
+            except requests.exceptions.HTTPError as exc:
+                status = getattr(getattr(exc, "response", None), "status_code", None)
+                if status not in cls._RETRYABLE_HTTP:
+                    raise
+                last = exc
+            if attempt + 1 < cls._MAX_ATTEMPTS:
+                time.sleep(2.0 * (attempt + 1))
+        raise last
 
     @staticmethod
     def _safe_error(exc: Exception) -> str:

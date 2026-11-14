@@ -18,8 +18,12 @@ bindings:
     chain:
       - tool: dashscope_image
         provider: dashscope
-        catalog_model: dashscope/qwen-image-2.0-pro
+        catalog_model: dashscope/wan2.7-image
+        model: wan2.7-image
         tier: paid
+        # wan2.7-image is the model with a live free quota on this account
+        # (50 images, console 2026-11-13); qwen-image-* is arrears-blocked.
+        cost_cny_per_run: 0.15
         operations: [text_to_image]
       - tool: bria_fal_image
         provider: bria
@@ -32,8 +36,11 @@ bindings:
     chain:
       - tool: dashscope_image
         provider: dashscope
-        catalog_model: dashscope/qwen-image-2.0-pro
+        catalog_model: dashscope/wan2.7-image
+        model: wan2.7-image
         tier: paid
+        # Same free-quota model; the budget gate reserves one image per call.
+        cost_cny_per_run: 0.15
         operations: [text_to_image]
       - tool: bria_fal_image
         provider: bria
@@ -47,6 +54,9 @@ bindings:
       - tool: doubao_tts
         provider: doubao
         tier: paid
+        # Doubao Speech 2.0 bills per character (~USD 0.000015); a 30s episode
+        # stays far below one cent, so declare that ceiling per run.
+        cost_cny_per_run: 0.01
         operations: [tts]
 
   lipsync:
@@ -54,6 +64,8 @@ bindings:
       - tool: kling_lip_sync
         provider: kling
         tier: paid
+        # Kling official lip-sync: USD 0.32 per run (~CNY 2.30 at 7.2).
+        cost_cny_per_run: 2.30
         operations: [lipsync]
 
   music:
