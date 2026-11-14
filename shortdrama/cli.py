@@ -724,7 +724,11 @@ def _cmd_demo_real(args: argparse.Namespace) -> int:
         projects_dir=service.projects_dir,
         profile=args.profile or "",
         keyframes_required=not getattr(args, "without_keyframes", False),
+        max_item_cost_cny=getattr(args, "max_item_cost_cny", None),
     )
+    if getattr(args, "dry_run_cost", False):
+        _write({"cost_estimate": driver.cost_preview()}, True)
+        return 0
     result = driver.run(
         real=True,
         approve_live=args.approve_live,
@@ -749,6 +753,7 @@ def _cmd_demo_real(args: argparse.Namespace) -> int:
                 ],
                 "external_api_calls": result["external_api_calls"],
                 "budget": result["budget"],
+                "cost_estimate": result.get("cost_estimate"),
                 "status": result.get("status"),
                 "waiting_for": result.get("waiting_for"),
             },
@@ -1099,6 +1104,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--without-keyframes", action="store_true",
                    help="declared fallback: animate shots from text when the "
                         "image slot is blocked (no keyframe review)")
+    p.add_argument("--max-item-cost-cny", type=float, default=None,
+                   help="hard per-shot ceiling in CNY; any pricier item blocks "
+                        "the run before it is submitted")
+    p.add_argument("--dry-run-cost", action="store_true",
+                   help="print the per-shot cost estimate and exit without "
+                        "calling any provider")
     _add_json(p)
     p.set_defaults(func=_cmd_demo)
 

@@ -80,6 +80,45 @@ DEFAULT_CNY_PER_USD = 7.2
 #: declared zero cash price; local tools need no task id.
 _LOCAL_TIERS = frozenset({"local"})
 
+#: Failures that mean "these parameters will never work": retrying the same
+#: input only burns time and quota, so the exact input hash is remembered.
+_CONTENT_ERROR_TOKENS = (
+    "invalidparameter", "invalid parameter", "invalid_parameter",
+    "unsupported", "not supported", "bad request", "requires a reference image",
+    "must be", "cannot be", "out of range",
+)
+_QUOTA_ERROR_TOKENS = (
+    "arrearage", "freetieronly", "free tier", "free quota", "quota",
+    "insufficient", "balance",
+)
+_TRANSIENT_ERROR_TOKENS = (
+    "timeout", "timed out", "connection", "temporar", "rate limit", "429",
+    "500", "502", "503", "504",
+)
+
+#: Remembers content-rejected input hashes so a resume cannot re-pay for a
+#: call that is guaranteed to fail again until the content changes.
+FAILED_INPUTS_FILE = "failed_inputs.json"
+
+
+def classify_provider_error(message: Any) -> str:
+    """Classify a provider failure as content / quota / transient / unknown.
+
+    Quota is checked first: "free quota" also contains "free", and rotating to
+    another model is the only useful response there. Content is next because
+    those errors must never be retried with the same input. Everything else is
+    treated as possibly transient.
+    """
+    text = str(message or "").lower()
+    if any(token in text for token in _QUOTA_ERROR_TOKENS):
+        return "quota"
+    if any(token in text for token in _CONTENT_ERROR_TOKENS):
+        return "content"
+    if any(token in text for token in _TRANSIENT_ERROR_TOKENS):
+        return "transient"
+    return "unknown"
+
+
 Executor = Callable[[str, dict[str, Any]], dict[str, Any]]
 
 
@@ -107,6 +146,7 @@ class Driver:
         currency: str = "USD",
         clip_duration_s: float = 5.0,
         keyframes_required: bool = True,
+        max_item_cost_cny: Optional[float] = None,
     ) -> None:
         self.project = project
         self.episode = episode
@@ -120,6 +160,11 @@ class Driver:
         # text instead of a reviewed keyframe. Quality differs; the run JSON
         # records it so the operator never mistakes it for the normal path.
         self.keyframes_required = bool(keyframes_required)
+        # Hard per-item ceiling: a misconfigured duration or model must not be
+        # able to turn one shot into an unexpectedly large charge.
+        self.max_item_cost_cny = (
+            float(max_item_cost_cny) if max_item_cost_cny is not None else None
+        )
         # Code-level QA validates real media on disk. A test/rehearsal injects a
         # fake executor that produces no files, so QA is only meaningful when
         # the real registry executor runs.
@@ -209,6 +254,89 @@ class Driver:
     # Entry point
     # ------------------------------------------------------------------
 
+    def cost_preview(self, stages: Optional[list[str]] = None) -> dict[str, Any]:
+        """Per-shot cost estimate for the stages that are still to run.
+
+        Items already produced (same input hash + artifact on disk) are priced
+        at zero, so resuming a paused run does not look like a fresh spend.
+        The preview never calls a provider.
+        """
+        stage_list = list(stages or self.stage_order)
+        ledger = SubmissionLedger(self.project, self.episode, self.projects_dir)
+        rows: list[dict[str, Any]] = []
+        total_cny = 0.0
+        worst_cny = 0.0
+
+        for stage in stage_list:
+            for slot in self.stage_slots(stage):
+                row: Optional[dict[str, Any]] = None
+                try:
+                    tool = self._resolve(slot)
+                    row = self._cost_row(slot)
+                except slots.CapabilitySlotsError as exc:
+                    rows.append({
+                        "stage": stage, "slot": slot, "tool": None,
+                        "unresolved": str(exc), "estimated_cny": 0.0,
+                    })
+                    continue
+                if row is None:
+                    rows.append({
+                        "stage": stage, "slot": slot, "tool": tool,
+                        "unresolved": "no price estimate", "estimated_cny": 0.0,
+                    })
+                    continue
+
+                try:
+                    items = self._slot_items(stage, slot)
+                except Exception:
+                    items = []
+                per_item = float(row.get("estimated_cny") or 0.0)
+                if items:
+                    item_rows = []
+                    for work_item in items:
+                        reused = self._already_produced(
+                            ledger, stage, slot, tool, work_item,
+                            model=row.get("model"),
+                        ) is not None
+                        item_rows.append({
+                            "item_id": work_item.item_id,
+                            "estimated_cny": 0.0 if reused else per_item,
+                            "reused": reused,
+                        })
+                else:
+                    # Artifacts not produced yet: assume one call at the
+                    # declared price so the estimate stays conservative.
+                    item_rows = [{
+                        "item_id": "(pending artifacts)",
+                        "estimated_cny": per_item,
+                        "reused": False,
+                    }]
+
+                subtotal = sum(entry["estimated_cny"] for entry in item_rows)
+                worst = subtotal * (1 + self.retries)
+                total_cny += subtotal
+                worst_cny += worst
+                rows.append({
+                    "stage": stage,
+                    "slot": slot,
+                    "tool": tool,
+                    "model": row.get("model"),
+                    "item_count": len(item_rows),
+                    "estimated_cny": round(subtotal, 4),
+                    "worst_case_cny": round(worst, 4),
+                    "items": item_rows,
+                })
+
+        return {
+            "currency": "CNY",
+            "estimated_cny": round(total_cny, 4),
+            "worst_case_cny": round(worst_cny, 4),
+            "estimated_usd": round(total_cny / self.cny_per_usd, 6),
+            "worst_case_usd": round(worst_cny / self.cny_per_usd, 6),
+            "budget_usd": self._budget_usd,
+            "rows": rows,
+        }
+
     def run(
         self,
         *,
@@ -284,6 +412,32 @@ class Driver:
         elif resume["stage"] is None:
             result["status"] = "already-complete"
             return result
+
+        preview_stages = self.stage_order[start:]
+        if stop_after in preview_stages:
+            preview_stages = preview_stages[: preview_stages.index(stop_after) + 1]
+        preview = self.cost_preview(preview_stages)
+        result["cost_estimate"] = preview
+        if (
+            self._budget_usd is not None
+            and preview["worst_case_usd"] > float(self._budget_usd) + 1e-9
+        ):
+            # Fail before the first call instead of discovering the shortfall
+            # after several paid shots.
+            raise self._pause(
+                ErrorCode.BUDGET_EXCEEDED,
+                f"estimated worst case {preview['worst_case_usd']:.4f} "
+                f"{self.currency} exceeds budget {float(self._budget_usd):.4f}; "
+                "no call was made",
+                "raise --budget-usd or reduce the run (--stop-after / fewer "
+                "shots), then re-run; nothing was spent",
+                recovery="ask-human",
+                side_effects="none",
+                context={
+                    "budget": float(self._budget_usd),
+                    "estimate": preview,
+                },
+            )
 
         self._record_preexecution_decisions()
         ledger = SubmissionLedger(self.project, self.episode, self.projects_dir)
@@ -725,6 +879,47 @@ class Driver:
         item["estimated_cny"] = round(float(row.get("estimated_cny") or 0.0), 4)
         item["worst_case_usd"] = worst_usd
 
+        if (
+            self.max_item_cost_cny is not None
+            and float(row.get("estimated_cny") or 0.0) > self.max_item_cost_cny + 1e-9
+        ):
+            raise self._pause(
+                ErrorCode.BUDGET_EXCEEDED,
+                f"item '{work_item.item_id}' would cost "
+                f"¥{float(row.get('estimated_cny') or 0.0):.4f}, above the "
+                f"per-item ceiling ¥{self.max_item_cost_cny:.4f}; nothing was spent",
+                "raise max_item_cost_cny or shorten/cheapen the item, then re-run",
+                recovery="ask-human",
+                side_effects="none",
+                context={
+                    "stage": stage,
+                    "slot": slot,
+                    "item_id": work_item.item_id,
+                    "estimated_cny": float(row.get("estimated_cny") or 0.0),
+                    "max_item_cost_cny": self.max_item_cost_cny,
+                },
+            )
+
+        # A content-rejected input is remembered so a resume cannot pay again
+        # for a call that is guaranteed to fail until the parameters change.
+        previous_failure = self._known_failure(stage, slot, tool, work_item)
+        if previous_failure is not None:
+            raise self._pause(
+                ErrorCode.BATCH_PRECONDITION_FAILED,
+                f"item '{work_item.item_id}' already failed with a content error "
+                f"({previous_failure.get('error')}); the same input will fail again",
+                "change the prompt/parameters or the bound model; the input hash "
+                "covers both, so a real change is a new work unit",
+                recovery="do-X-first",
+                side_effects="none",
+                context={
+                    "stage": stage,
+                    "slot": slot,
+                    "item_id": work_item.item_id,
+                    "prior_error": previous_failure.get("error"),
+                },
+            )
+
         # A stage paused mid-way (budget or crash) must resume, not re-pay.
         # The input hash already covers the content, so a resolved entry with
         # the same hash plus an existing output file means this exact item was
@@ -761,14 +956,25 @@ class Driver:
         # risk:swallowed-exception reason:"provider errors are converted to an agent-ready ApiError with UNKNOWN billing state and reconciled before any retry; never ignored" owner:@kevinwanghd reviewed:2026-11-12
         except Exception as exc:  # provider call failed; billing identity unknown
             ledger.mark_submitted(entry["entry_id"], None)
+            kind = classify_provider_error(exc)
+            if kind == "content":
+                self._remember_failed_input(
+                    stage, slot, tool, work_item, str(exc)
+                )
             raise self._pause(
                 ErrorCode.INTERNAL_ERROR,
                 f"{tool} failed at stage '{stage}' slot '{slot}' "
                 f"item '{work_item.item_id}': {exc}",
-                "reconcile the ledger entry with the provider (resume mode=reconcile) "
-                "before retrying; do not re-pay blindly",
-                recovery="ask-human",
-                side_effects="unknown",
+                (
+                    "the provider rejected these parameters; fix the prompt/"
+                    "parameters or the bound model before retrying (the input is "
+                    "remembered so it will not be re-paid unchanged)"
+                    if kind == "content"
+                    else "reconcile the ledger entry with the provider "
+                         "(resume mode=reconcile) before retrying; do not re-pay blindly"
+                ),
+                recovery="do-X-first" if kind == "content" else "ask-human",
+                side_effects="none" if kind == "content" else "unknown",
                 context={
                     "stage": stage,
                     "slot": slot,
@@ -776,6 +982,7 @@ class Driver:
                     "item_id": work_item.item_id,
                     "entry_id": entry["entry_id"],
                     "resume_mode": "reconcile",
+                    "error_kind": kind,
                 },
             ) from exc
 
@@ -788,14 +995,29 @@ class Driver:
 
         if not payload["success"]:
             ledger.mark_submitted(entry["entry_id"], None)
+            failure_text = payload.get("error") or "no error detail"
+            kind = classify_provider_error(failure_text)
+            if kind == "content":
+                self._remember_failed_input(
+                    stage, slot, tool, work_item, str(failure_text)
+                )
             raise self._pause(
                 ErrorCode.INTERNAL_ERROR,
                 f"{tool} reported failure at stage '{stage}' slot '{slot}' "
-                f"item '{work_item.item_id}': "
-                f"{payload.get('error') or 'no error detail'}",
-                "reconcile the ledger entry with the provider before retrying",
-                recovery="ask-human",
-                side_effects="unknown",
+                f"item '{work_item.item_id}': {failure_text}",
+                {
+                    "content": (
+                        "the provider rejected these parameters; fix the prompt/"
+                        "parameters or the bound model before retrying (the input "
+                        "is remembered so it will not be re-paid unchanged)"
+                    ),
+                    "quota": (
+                        "every declared model reports exhausted quota; bind a "
+                        "different model or wait for the quota window"
+                    ),
+                }.get(kind, "reconcile the ledger entry with the provider before retrying"),
+                recovery="do-X-first" if kind in ("content", "quota") else "ask-human",
+                side_effects="none" if kind in ("content", "quota") else "unknown",
                 context={
                     "stage": stage,
                     "slot": slot,
@@ -803,6 +1025,7 @@ class Driver:
                     "item_id": work_item.item_id,
                     "entry_id": entry["entry_id"],
                     "resume_mode": "reconcile",
+                    "error_kind": kind,
                 },
             )
 
@@ -1213,6 +1436,51 @@ class Driver:
             side_effects=effects,
             context=context,
         )
+
+    def _failed_inputs_path(self) -> Path:
+        return (
+            self.projects_dir / self.project / self.episode / FAILED_INPUTS_FILE
+        )
+
+    def _load_failed_inputs(self) -> dict[str, dict[str, Any]]:
+        path = self._failed_inputs_path()
+        if not path.is_file():
+            return {}
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def _remember_failed_input(
+        self,
+        stage: str,
+        slot: str,
+        tool: str,
+        work_item: WorkItem,
+        error: str,
+    ) -> None:
+        """Pin a content-rejected input so the same call is never re-paid."""
+        data = self._load_failed_inputs()
+        data[self._input_hash(stage, slot, tool, work_item)] = {
+            "stage": stage,
+            "slot": slot,
+            "tool": tool,
+            "item_id": work_item.item_id,
+            "error": error[:500],
+            "at": _now(),
+        }
+        path = self._failed_inputs_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+
+    def _known_failure(
+        self, stage: str, slot: str, tool: str, work_item: WorkItem
+    ) -> Optional[dict[str, Any]]:
+        data = self._load_failed_inputs()
+        return data.get(self._input_hash(stage, slot, tool, work_item))
 
     def _input_hash(
         self, stage: str, slot: str, tool: str, work_item: Optional[WorkItem] = None
