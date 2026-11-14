@@ -308,6 +308,78 @@ def test_subtitle_segments_capped_to_real_audio():
     assert segs[0]["end"] - segs[0]["start"] <= 2.5
 
 
+def _video_assets(tmp_path: Path, shot_ids: list[str]) -> None:
+    assets = tmp_path / "demo" / "ep01" / "assets"
+    assets.mkdir(parents=True, exist_ok=True)
+    for shot_id in shot_ids:
+        (assets / f"shot_gen_video_primary_{shot_id}.mp4").write_bytes(b"x")
+
+
+def test_compose_emits_edit_decisions_in_scene_plan_order(tmp_path: Path):
+    plan = _scene_plan(2)
+    _video_assets(tmp_path, ["sh_001", "sh_000"])  # manifest order differs
+    manifest = {
+        "assets": [
+            {"type": "video", "scene_id": shot_id}
+            for shot_id in ("sh_001", "sh_000")
+        ]
+    }
+
+    items = build_work_items(
+        "assembly", "compose",
+        {"scene_plan": plan, "asset_manifest": manifest},
+        projects_dir=tmp_path, project="demo", episode="ep01",
+    )
+
+    assert len(items) == 1
+    edit = items[0].inputs["edit_decisions"]
+    # Cuts follow the plan, never the append-only manifest order.
+    assert [cut["shot_id"] for cut in edit["cuts"]] == ["sh_000", "sh_001"]
+    assert edit["cuts"][0]["out_seconds"] == 5
+    assert edit["metadata"]["compose_target"] == {
+        "width": 720, "height": 1280, "fit": "cover",
+    }
+
+
+def test_compose_attaches_subtitle_when_present(tmp_path: Path):
+    plan = _scene_plan(1)
+    _video_assets(tmp_path, ["sh_000"])
+    srt = tmp_path / "demo" / "ep01" / "assets" / "assembly_subtitle_subtitle_default.srt"
+    srt.write_text("1\n00:00:00,000 --> 00:00:01,000\nhi\n", encoding="utf-8")
+
+    items = build_work_items(
+        "assembly", "compose",
+        {"scene_plan": plan, "asset_manifest": {"assets": [{"type": "video", "scene_id": "sh_000"}]}},
+        projects_dir=tmp_path, project="demo", episode="ep01",
+    )
+
+    assert items[0].inputs["subtitle_path"] == str(srt)
+    assert items[0].inputs["edit_decisions"]["subtitles"] == {"source": str(srt)}
+
+
+def test_compose_requires_every_approved_clip(tmp_path: Path):
+    plan = _scene_plan(2)
+    _video_assets(tmp_path, ["sh_000"])
+    manifest = {"assets": [{"type": "video", "scene_id": "sh_000"}]}
+
+    with pytest.raises(ContentError, match="sh_001"):
+        build_work_items(
+            "assembly", "compose",
+            {"scene_plan": plan, "asset_manifest": manifest},
+            projects_dir=tmp_path, project="demo", episode="ep01",
+        )
+
+
+def test_compose_prefers_the_assembly_director_edit_decisions():
+    artifact = {"cuts": [{"source": "a.mp4", "in_seconds": 0, "out_seconds": 2}]}
+    items = build_work_items(
+        "assembly", "compose",
+        {"scene_plan": _scene_plan(1), "asset_manifest": {"assets": []},
+         "edit_decisions": artifact},
+    )
+    assert items[0].inputs["edit_decisions"]["cuts"] == artifact["cuts"]
+
+
 def test_continuity_rejects_unknown_character():
     from shortdrama import continuity
     plan = _scene_plan(1)
