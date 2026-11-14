@@ -148,7 +148,9 @@ def test_image_to_video_payload_carries_first_frame():
         resolution="720p",
         duration_seconds=4,
     )
-    assert payload["input"]["img_url"] == "https://example.test/frame.png"
+    media = payload["input"]["media"]
+    assert media[0]["type"] == "first_frame"
+    assert media[0]["url"] == "https://example.test/frame.png"
     assert payload["parameters"]["resolution"] == "720P"
     assert payload["parameters"]["duration"] == 4
 
@@ -160,7 +162,7 @@ def test_first_frame_aliases_image_to_video():
         operation="first_frame",
         image_url="data:image/png;base64,AAAA",
     )
-    assert payload["input"]["img_url"].startswith("data:image/png")
+    assert payload["input"]["media"][0]["url"].startswith("data:image/png")
 
 
 def test_i2v_without_image_is_rejected():
@@ -216,9 +218,9 @@ def test_mock_i2v_sends_the_image(no_network):
         poll_interval_seconds=0,
     )
     assert result.success is True
-    assert transport.submit_payloads[0]["input"]["img_url"] == (
-        "https://example.test/keyframe.png"
-    )
+    media = transport.submit_payloads[0]["input"]["media"]
+    assert media[0]["type"] == "first_frame"
+    assert media[0]["url"] == "https://example.test/keyframe.png"
 
 
 def test_mock_first_frame_local_path_becomes_data_uri(no_network, tmp_path):
@@ -234,7 +236,7 @@ def test_mock_first_frame_local_path_becomes_data_uri(no_network, tmp_path):
     )
     assert result.success is True
     assert result.data["operation"] == "image_to_video"
-    assert transport.submit_payloads[0]["input"]["img_url"].startswith(
+    assert transport.submit_payloads[0]["input"]["media"][0]["url"].startswith(
         "data:image/png;base64,"
     )
 
@@ -452,8 +454,8 @@ def test_fragment_declares_verified_i2v_models():
     assert "720p" in by_model[("dashscope/wan2.7-i2v", "image_to_video")]["output_resolutions"]
 
     assert by_model[("dashscope/wan3.0-video", "image_to_video")]["first_frame_conditioning"] is True
-    assert by_model[("dashscope/wan3.0-video", "image_to_video")]["reference_images_max"] == 1
-    assert by_model[("dashscope/wan3.0-video", "text_to_video")]["first_frame_conditioning"] is False
+    assert by_model[("dashscope/wan3.0-video", "image_to_video")]["reference_images_max"] == 10
+    assert by_model[("dashscope/wan3.0-video", "text_to_video")]["first_frame_conditioning"] is True
     assert by_model[("dashscope/wan2.7-i2v", "image_to_video")]["first_frame_conditioning"] is True
 
 
@@ -550,8 +552,40 @@ def test_wan30_audio_url_drives_lipsync_payload():
         image_url="data:image/png;base64,AA", audio_url="data:audio/mpeg;base64,BB",
         resolution="720p", duration_seconds=3, ratio="9:16",
     )
-    assert payload["input"]["audio_url"] == "data:audio/mpeg;base64,BB"
-    assert payload["input"]["img_url"].startswith("data:image/png")
+    # wan3.0 lipsync: reference_image + reference_audio (first_frame is
+    # mutually exclusive with reference_* per the official API).
+    media = payload["input"]["media"]
+    types = {m["type"] for m in media}
+    assert types == {"reference_image", "reference_audio"}
+    assert payload["parameters"]["audio"] is True
+    assert "audio_url" not in payload["input"]
+    assert "img_url" not in payload["input"]
+
+
+def test_wan27_driving_audio_coexists_with_first_frame():
+    payload = build_request_payload(
+        "she speaks", operation="first_frame", model="wan2.7-i2v",
+        image_url="https://example.test/frame.png",
+        audio_url="https://example.test/voice.mp3",
+        resolution="720p", duration_seconds=5,
+    )
+    media = payload["input"]["media"]
+    types = [m["type"] for m in media]
+    assert types == ["first_frame", "driving_audio"]
+    assert "ratio" not in payload["parameters"]
+
+
+def test_wan30_no_audio_uses_first_frame():
+    payload = build_request_payload(
+        "she walks", operation="first_frame", model="wan3.0-video",
+        image_url="https://example.test/frame.png",
+        resolution="720p", duration_seconds=5, ratio="9:16",
+    )
+    media = payload["input"]["media"]
+    assert len(media) == 1
+    assert media[0]["type"] == "first_frame"
+    assert payload["parameters"]["audio"] is False
+    assert payload["parameters"]["ratio"] == "9:16"
 
 
 def test_audio_url_is_not_sent_to_models_without_audio():

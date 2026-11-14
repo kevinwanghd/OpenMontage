@@ -482,9 +482,8 @@ def test_real_draft_profile_exposes_cost_basis_without_regressing_dashscope():
     report = cs.doctor("tiktok-draft")
     by_tool = {row["tool"]: row for row in report["cost_comparison"]}
     assert {"molica_video", "holopix_video", "dashscope_video"} <= set(by_tool)
-    # The draft primary is a free-quota model (happyhorse), so the estimate is
-    # zero cash while the price remains explicitly known.
-    assert by_tool["dashscope_video"]["estimated_cny"] == pytest.approx(0.0)
+    # The draft primary is Token Plan wan3.0-video (paid, ¥0.60/s × 5s = ¥3).
+    assert by_tool["dashscope_video"]["estimated_cny"] == pytest.approx(3.0)
     assert by_tool["dashscope_video"]["cost_known"] is True
     # Membership tiers declare no cash cost but keep their credit quota.
     assert by_tool["holopix_video"]["estimated_cny"] == 0.0

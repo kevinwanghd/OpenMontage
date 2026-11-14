@@ -162,8 +162,15 @@ def build_request_payload(
         # 480P does not exist on 2.7; the nearest supported tier is 720P.
         if _RESOLUTION_RANK.get(canonical_resolution, 0) < _RESOLUTION_RANK["720p"]:
             parameters["resolution"] = WAN27_MIN_RESOLUTION.upper()
+        media: list[dict[str, str]] = []
         if image_url:
-            video_input["media"] = [{"type": "first_frame", "url": image_url}]
+            media.append({"type": "first_frame", "url": image_url})
+        if audio_url:
+            # driving_audio coexists with first_frame on 2.7; the model
+            # syncs mouth shapes to the supplied track.
+            media.append({"type": "driving_audio", "url": audio_url})
+        if media:
+            video_input["media"] = media
         parameters.pop("ratio", None)  # the reference image sets the aspect
     elif model.startswith("happyhorse"):
         # happyhorse r2v takes a subject/reference image, 720P/1080P only and
@@ -180,13 +187,21 @@ def build_request_payload(
         elif image_url:
             video_input["media"] = [{"type": "first_frame", "url": image_url}]
             parameters.pop("ratio", None)
-    elif image_url:
-        video_input["img_url"] = image_url
-
-    if audio_url and not model.startswith("wan2.7") and not model.startswith("happyhorse"):
-        # wan3.0 speaks the supplied track: mouth shapes follow the audio,
-        # which is what turns a silent shot into on-screen dialogue.
-        video_input["audio_url"] = audio_url
+    else:
+        # wan3.0: ALL inputs go through input.media (no img_url, no audio_url).
+        # first_frame and reference_* are MUTUALLY EXCLUSIVE: dialogue shots
+        # must use reference_image + reference_audio, not first_frame.
+        media = []
+        if audio_url:
+            if image_url:
+                media.append({"type": "reference_image", "url": image_url})
+            media.append({"type": "reference_audio", "url": audio_url})
+            parameters["audio"] = True
+        elif image_url:
+            media.append({"type": "first_frame", "url": image_url})
+            parameters["audio"] = False
+        if media:
+            video_input["media"] = media
 
     return {"model": model, "input": video_input, "parameters": parameters}
 
