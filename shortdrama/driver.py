@@ -754,7 +754,12 @@ class Driver:
         prior = [
             record
             for record in ledger.find_by_input_hash(input_hash)
-            if record.get("billing_state") in ("billed", "free")
+            if (
+                record.get("billing_state") == "billed"
+                # A "free" result only proves success when the provider
+                # returned a task id; reconciled failures are also "free".
+                or (record.get("billing_state") == "free" and record.get("task_id"))
+            )
             and (model is None or record.get("model") == model)
         ]
         if not prior:
