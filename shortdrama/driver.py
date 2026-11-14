@@ -162,6 +162,7 @@ class Driver:
         """Manifest-declared requirement; unknown slots stay required (fail loud)."""
         try:
             definition = slots.slot_definition(slot)
+        # risk:swallowed-exception reason:"槽位定义缺失时按必需处理（fail loud），异常不会被忽略" owner:@kevinwanghd reviewed:2026-11-14
         except Exception:
             return True
         return bool(definition.get("required", True))
@@ -786,6 +787,7 @@ class Driver:
 
             registry.ensure_discovered()
             registered = registry.get(tool)
+        # risk:swallowed-exception reason:"注册表不可用时按异步工具处理并要求 task id（保守失败），不静默放行" owner:@kevinwanghd reviewed:2026-11-14
         except Exception:
             return True
         if registered is None:

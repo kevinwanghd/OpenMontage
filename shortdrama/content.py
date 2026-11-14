@@ -458,6 +458,7 @@ def _audio_duration(path: Path) -> Optional[float]:
         return None
     import subprocess
 
+    # risk:swallowed-exception reason:"ffprobe 不可用时返回 None，字幕按未知时长降级，不阻断生成" owner:@kevinwanghd reviewed:2026-11-14
     try:
         out = subprocess.run(
             ["ffprobe", "-v", "error", "-show_entries", "format=duration",

@@ -10,6 +10,8 @@ cannot ship) or a warning (worth fixing, does not stop the pipeline).
 """
 from __future__ import annotations
 
+# risk:untested reason:"QA 门禁由 tests/contracts/test_shortdrama_qa.py 覆盖；thin 静态门禁无法关联测试映射" owner:@kevinwanghd reviewed:2026-11-14
+
 import json
 import re
 from pathlib import Path
@@ -30,6 +32,7 @@ def _ffprobe(path: Path) -> Optional[dict[str, Any]]:
         return None
     import subprocess
 
+    # risk:swallowed-exception reason:"媒体探测失败返回 None，由 QA 判为缺失并阻断，不会静默放行" owner:@kevinwanghd reviewed:2026-11-14
     try:
         out = subprocess.run(
             ["ffprobe", "-v", "error", "-show_entries",
@@ -217,6 +220,7 @@ def review_visual(project_dir: Path) -> dict[str, Any]:
 def _load(path: Path) -> Optional[dict[str, Any]]:
     if not path.is_file():
         return None
+    # risk:swallowed-exception reason:"artifact 损坏返回 None，由调用方按缺失处理并阻断" owner:@kevinwanghd reviewed:2026-11-14
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):

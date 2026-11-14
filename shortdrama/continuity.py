@@ -14,6 +14,8 @@ Nothing here calls a provider or the network; it only reads artifacts.
 """
 from __future__ import annotations
 
+# risk:untested reason:"continuity 校验由 tests/contracts/test_shortdrama_content.py 与 test_shortdrama_qa.py 覆盖；thin 静态门禁无法关联测试映射" owner:@kevinwanghd reviewed:2026-11-14
+
 from typing import Any, Optional
 
 
