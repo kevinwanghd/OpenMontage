@@ -100,7 +100,7 @@ entries:
     output_resolutions: ["480p", "720p", "1080p"]
     seed_control: true
     first_frame_conditioning: true
-    source: "Official API ref 2026-11-14: input.media[type=reference_audio] drives lipsync; first_frame and reference_* mutually exclusive; parameters.audio defaults true; 2-30s"
+    source: "Official API ref 2026-11-14 + M1 live probe 2026-11-15: media[reference_image]+media[reference_audio] 720P/3s task 8d06c3ac SUCCEEDED; output 720x1280, audio track present, mouth movement visible"
     verified_at: "2026-11-14"
     verification_status: VERIFIED
     commercial_rights: "Bailian ToS; Token Plan subscription"
@@ -119,7 +119,7 @@ entries:
     output_resolutions: ["480p", "720p", "1080p"]
     seed_control: true
     first_frame_conditioning: true
-    source: "Official API ref 2026-11-14: no audio -> media[first_frame]; with audio -> media[reference_image]+media[reference_audio] (first_frame mutually exclusive with reference_*); parameters.audio controls output audio track"
+    source: "Official API ref 2026-11-14 + M1 live probe 2026-11-15: no audio -> media[first_frame]; with audio -> media[reference_image]+media[reference_audio] (first_frame mutually exclusive with reference_*); 720P/3s lipsync task SUCCEEDED with audio track and visible mouth movement"
     verified_at: "2026-11-14"
     verification_status: VERIFIED
     commercial_rights: "Bailian ToS; Token Plan subscription"
