@@ -171,7 +171,13 @@ def _character_cards(
     return out
 
 
-def _shot_prompt(shot: dict[str, Any], characters: dict[str, dict[str, Any]]) -> str:
+def _shot_prompt(
+    shot: dict[str, Any],
+    characters: dict[str, dict[str, Any]],
+    *,
+    props: Optional[dict[str, dict[str, Any]]] = None,
+    scenes: Optional[dict[str, dict[str, Any]]] = None,
+) -> str:
     parts: list[str] = []
     for key in ("single_action", "visual_evidence"):
         value = shot.get(key)
@@ -184,6 +190,18 @@ def _shot_prompt(shot: dict[str, Any], characters: dict[str, dict[str, Any]]) ->
                 f"{card.get('name') or character_id} "
                 f"({card.get('canonical_description') or ''})".strip()
             )
+    # Location and props are part of continuity: without them the video model
+    # re-invents the room and swaps the bag between shots.
+    scene = (scenes or {}).get(str(shot.get("scene_id") or ""))
+    if scene and scene.get("description"):
+        parts.append(f"Location: {str(scene['description']).strip().rstrip('.')}")
+    prop_descriptions = [
+        str((props or {}).get(str(prop_id), {}).get("description") or "").strip()
+        for prop_id in shot.get("prop_ids") or []
+    ]
+    prop_descriptions = [d for d in prop_descriptions if d]
+    if prop_descriptions:
+        parts.append("On-screen props: " + "; ".join(prop_descriptions))
     description = ". ".join(parts)
     scene = {
         "description": f"{description}." if description else "",
@@ -195,6 +213,22 @@ def _shot_prompt(shot: dict[str, Any], characters: dict[str, dict[str, Any]]) ->
         raise ContentError(
             f"shot {shot.get('shot_id')!r} has invalid shot_language: {exc}"
         ) from exc
+
+
+def _prop_index(scene_plan: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {
+        str(prop.get("id")): prop
+        for prop in scene_plan.get("props") or []
+        if isinstance(prop, dict) and prop.get("id")
+    }
+
+
+def _scene_index(scene_plan: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {
+        str(scene.get("id")): scene
+        for scene in scene_plan.get("scenes") or []
+        if isinstance(scene, dict) and scene.get("id")
+    }
 
 
 def _approved_keyframes(asset_manifest: Optional[dict[str, Any]]) -> dict[str, str]:
@@ -256,6 +290,7 @@ def _keyframe_items(
     artifacts: dict[str, Any],
 ) -> list[WorkItem]:
     characters = _character_cards(projects_dir, project, episode, artifacts)
+    prop_index, scene_index = _prop_index(scene_plan), _scene_index(scene_plan)
     items: list[WorkItem] = []
     for shot in _shots(scene_plan):
         shot_id = _shot_id(shot)
@@ -265,7 +300,9 @@ def _keyframe_items(
             WorkItem(
                 shot_id,
                 {
-                    "prompt": _shot_prompt(shot, characters),
+                    "prompt": _shot_prompt(
+                        shot, characters, props=prop_index, scenes=scene_index
+                    ),
                     "size": DRAFT_IMAGE_SIZE,
                     "n": candidates,
                 },
@@ -341,6 +378,7 @@ def _shot_items(
     characters: Optional[dict[str, dict[str, Any]]] = None,
     audio_path_for=None,
 ) -> list[WorkItem]:
+    prop_index, scene_index = _prop_index(scene_plan), _scene_index(scene_plan)
     keyframes = _approved_keyframes(asset_manifest) if keyframes_required else {}
     items: list[WorkItem] = []
     missing: list[str] = []
@@ -356,7 +394,10 @@ def _shot_items(
                     {
                         # Declared fallback: no approved keyframe (image slot
                         # blocked), so the shot is animated straight from text.
-                        "prompt": _shot_prompt(shot, characters or {}),
+                        "prompt": _shot_prompt(
+                            shot, characters or {},
+                            props=prop_index, scenes=scene_index,
+                        ),
                         "operation": "text_to_video",
                         "duration_seconds": duration,
                         "ratio": "9:16",
@@ -370,9 +411,12 @@ def _shot_items(
         duration = float(shot.get("duration_s") or 5.0)
         duration = max(1.0, min(10.0, duration))
         inputs: dict[str, Any] = {
-            # No character cards here: shot_gen conditions on the
-            # approved keyframe, not on a re-invented description.
-            "prompt": _shot_prompt(shot, {}),
+            # wan3.0 with audio uses reference_image (first_frame and
+            # reference_* are mutually exclusive), which is weaker than a true
+            # first frame; the text must reinforce identity, location and props.
+            "prompt": _shot_prompt(
+                shot, characters or {}, props=prop_index, scenes=scene_index
+            ),
             "operation": "first_frame",
             "reference_image_path": keyframe,
             "duration_seconds": duration,
