@@ -11,7 +11,8 @@
 ## 2026-11-15 AI 审查的边界
 
 - 审查只报会出错的问题（逻辑、安全、数据、契约），不报风格。
-- 纯文档改动（`docs/*.md` 与根 README）免审，且免审视为满足（`review=pass`），不设「skip 即放行」的旁路。
+- 纯文档改动（`docs/*.md` 与根 README）免 AI 审查，且免审视为满足（`review=pass`），不设「skip 即放行」的旁路。
+- 例外：`protected_paths` 里的文档（本文件、`declined.md`、`AGENT_GUIDE.md` 等）虽同样跳过 AI 审查，但必须经过 gate 的人工审批环节，bot 不会自动合并。
 - 审查 fail-closed：模型或密钥不可用时不放行，宁可挡住。
 
 ## 2026-11-15 草稿与送审
