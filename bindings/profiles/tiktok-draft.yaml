@@ -64,6 +64,18 @@ bindings:
         note: "UNVERIFIED membership ToS (R25); optional fallback, not a primary chain"
         operations: [text_to_video, image_to_video, first_last_frame_to_video]
 
+  # D20 (short-drama v2.5): music comes ONLY from the local royalty-free
+  # library (music_library/, tracks registered in licenses.json). No
+  # generation-API or scraped fallback: an empty library makes the slot
+  # unusable so the brief-gate preflight stops before any video spend
+  # (MUSIC_UNAVAILABLE). Other profiles keep the common.yaml music chain.
+  music:
+    chain:
+      - tool: music_library
+        provider: local
+        tier: local
+        operations: [music]
+
 degradation:
   # Declared first so a concrete unmet resolution outranks the generic
   # chain-degraded plan (both may match at once; equal specificity keeps the
