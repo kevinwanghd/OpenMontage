@@ -1,1 +1,2 @@
-@tools/text/__init__.py
+"""Text reasoning tools (LLM-backed, free-tier routing)."""
+# risk:untested reason:"package marker with no executable logic; the tool module is covered by tests/tools/test_bailian_chat.py" owner:@kevinwanghd reviewed:2026-11-12
