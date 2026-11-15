@@ -2,5 +2,9 @@
   "repo": "kevinwanghd/OpenMontage",
   "internal": ["docs/**/*.md", "**/*.md"],
   "check": { "workflow": "ci.yml", "job": "Validate Python" },
-  "review": { "points": "ops/review-points.md", "status": "agent-review" }
+  "review": {
+    "points": "ops/review-points.md",
+    "status": "agent-review",
+    "command": ["node", "C:/Users/kevin/.agent-autoloop/bin/review-codex.mjs", "{input}"]
+  }
 }
