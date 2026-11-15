@@ -453,7 +453,7 @@ class AudioMixer(BaseTool):
             f"[ducked]volume={music_vol * 3}[music_out];"  # compensate sidechain level
             # normalize=0: the default normalize=1 halves both inputs, so the
             # speech came out 6 dB down. No loudnorm follows, so guard clipping.
-            f"[0:a][music_out]amix=inputs=2:duration=longest:normalize=0[mixed];"
+            f"[speech_out][music_out]amix=inputs=2:duration=longest:normalize=0[mixed];"
             + self._limiter_filter("mixed", "out")
         )
 
