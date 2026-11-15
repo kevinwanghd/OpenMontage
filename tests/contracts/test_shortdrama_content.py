@@ -401,3 +401,58 @@ def test_continuity_dialogue_needs_audio():
     errs = continuity.validate_dialogue_audio(plan, lambda sid: None)
     assert errs and "sh_000" in errs[0]
     assert continuity.validate_dialogue_audio(plan, lambda sid: "x.mp3") == []
+
+
+def test_shot_tts_carries_the_character_provider_voice(tmp_path: Path):
+    plan = _scene_plan(1)
+    plan["shots"][0]["dialogue"] = {"text": "I made too much soup.", "speaker": "ch_lin"}
+    card = _card()
+    card["tts"] = {"voice_id": "zh_female_test_bigtts", "resource_id": "seed-tts-2.0"}
+
+    items = build_work_items(
+        "shot_gen", "tts_voice",
+        {"scene_plan": plan, "drama_character": card},
+        projects_dir=tmp_path, project="demo", episode="ep01",
+    )
+
+    assert items[0].inputs["voice_id"] == "zh_female_test_bigtts"
+    assert items[0].inputs["resource_id"] == "seed-tts-2.0"
+
+
+def test_assembly_tts_resolves_the_speaker_from_the_direction(tmp_path: Path):
+    script = {"sections": [{
+        "id": "s1", "text": "I made too much soup.",
+        "start_seconds": 0, "end_seconds": 3,
+        "speaker_directions": "LIN - not looking up",
+    }]}
+    card = _card()
+    card["tts"] = {"voice_id": "zh_female_test_bigtts", "resource_id": "seed-tts-2.0"}
+
+    items = build_work_items(
+        "assembly", "tts_voice",
+        {"script": script, "drama_character": card},
+        projects_dir=tmp_path, project="demo", episode="ep01",
+    )
+
+    assert items[0].inputs["voice_id"] == "zh_female_test_bigtts"
+
+
+def test_dialogue_video_prompt_names_the_line_and_timbre(tmp_path: Path):
+    plan = _scene_plan(1)
+    plan["shots"][0]["dialogue"] = {"text": "I made too much soup.", "speaker": "ch_lin"}
+    assets = tmp_path / "demo" / "ep01" / "assets"
+    assets.mkdir(parents=True)
+    (assets / "keyframe_x.png").write_bytes(b"x")
+    (assets / "shot_gen_tts_voice_sh_000.mp3").write_bytes(b"x")
+    manifest = {"assets": [{"type": "image", "scene_id": "sh_000",
+                            "path": str(assets / "keyframe_x.png")}]}
+
+    items = build_work_items(
+        "shot_gen", "video_primary",
+        {"scene_plan": plan, "asset_manifest": manifest},
+        projects_dir=tmp_path, project="demo", episode="ep01",
+    )
+
+    prompt = items[0].inputs["prompt"]
+    assert "I made too much soup." in prompt
+    assert "timbre" in prompt
