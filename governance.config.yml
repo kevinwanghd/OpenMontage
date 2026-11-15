@@ -88,6 +88,9 @@ auto_merge:
     points: ops/review-points.md
     internal:
       - "**/*.md"
+  # review 在纯文档改动时记 skip（免审），skip 也算满足；ci 不列入，缺运行仍阻断
+  skip_counts_as_pass:
+    - review
   required_checks_by_risk:
     low:
       - risk-scan
