@@ -1,1 +1,1 @@
-"""Text reasoning tools (LLM-backed, free-tier routing)."""
+@tools/text/__init__.py
