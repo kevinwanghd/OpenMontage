@@ -16,7 +16,34 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# 合并门禁以「workflow 整体结论」判定（governance.config.yml 的 ci_workflows），
+# 不是按单个 job 登记：Lint 失败会让整个 workflow 失败，从而阻止 AUTO_MERGE，
+# 不依赖 branch protection 的必需检查列表。
 jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: make install-dev
+
+      # lint 只做 py_compile，不需要 ffmpeg；与测试并行，缩短门禁等待
+      - name: Run lint smoke checks
+        run: make lint
+
   validate:
     name: Validate Python
     runs-on: ubuntu-latest
@@ -39,9 +66,6 @@ jobs:
 
       - name: Install dependencies
         run: make install-dev
-
-      - name: Run lint smoke checks
-        run: make lint
 
       - name: Run test suite
         run: make test
