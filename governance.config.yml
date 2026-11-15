@@ -86,8 +86,13 @@ auto_merge:
   ai_review:
     model: glm-5.3
     points: ops/review-points.md
+    # 免审只限用户文档：docs/ 下的 Markdown 与根 README；治理/评审规则（ops/**）等不在内。
+    # 用 docs/*.md 而非 docs/*，避免把 docs/ 下的脚本/配置等非文档文件也豁免。
+    # fnmatch 语义下 * 可跨目录，等价于 docs/ 下任意层级 .md。
     internal:
-      - "**/*.md"
+      - "docs/*.md"
+      - "README.md"
+      - "README_zh-CN.md"
   required_checks_by_risk:
     low:
       - risk-scan
