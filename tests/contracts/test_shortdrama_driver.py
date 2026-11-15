@@ -1171,3 +1171,46 @@ def test_classify_provider_error():
     assert classify_provider_error("Arrearage: account in arrears") == "quota"
     assert classify_provider_error("ReadTimeout") == "transient"
     assert classify_provider_error("something odd") == "unknown"
+
+
+def test_switching_model_releases_the_content_memo(projects, bindings):
+    calls: list = []
+
+    def rejecting_executor(tool: str, inputs: dict) -> dict:
+        calls.append((tool, inputs))
+        raise RuntimeError("InvalidParameter: duration out of range")
+
+    driver = Driver("demo", "ep01", projects_dir=projects, profile="alpha",
+                    executor=rejecting_executor)
+    with pytest.raises(ApiError):
+        driver.run(real=True, approve_live=True, budget_usd=50.0,
+                   start_at="shot_gen", stop_after="shot_gen")
+    ledger = SubmissionLedger("demo", "ep01", projects)
+    for entry in ledger.unknown_entries():
+        ledger.mark_result(entry["entry_id"], "free")
+
+    # Same tool, different model: the memo must not pin the new binding.
+    calls.clear()
+    driver._cost_row = lambda slot: {
+        "tool": "alpha_video", "provider": "alpha", "model": None,
+        "tool_model": "another-model", "estimated_cny": 2.0, "cost_known": True,
+    }
+    with pytest.raises(ApiError) as raised:
+        driver.run(real=True, approve_live=True, budget_usd=50.0,
+                   start_at="shot_gen", stop_after="shot_gen")
+    assert raised.value.context.get("error_kind") == "content"
+    assert len(calls) == 1, "a model change must release the memo"
+
+
+def test_config_error_is_not_memoized(projects, bindings):
+    def missing_key_executor(tool: str, inputs: dict) -> dict:
+        return {"success": False, "error": "DASHSCOPE_API_KEY not set.",
+                "cost_cny": 0.0}
+
+    driver = Driver("demo", "ep01", projects_dir=projects, profile="alpha",
+                    executor=missing_key_executor)
+    with pytest.raises(ApiError) as raised:
+        driver.run(real=True, approve_live=True, budget_usd=50.0,
+                   start_at="shot_gen", stop_after="shot_gen")
+    assert raised.value.context["error_kind"] == "config"
+    assert not (projects / "demo" / "ep01" / "failed_inputs.json").exists()

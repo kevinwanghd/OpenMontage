@@ -95,6 +95,12 @@ _TRANSIENT_ERROR_TOKENS = (
     "timeout", "timed out", "connection", "temporar", "rate limit", "429",
     "500", "502", "503", "504",
 )
+#: Credential / configuration problems are fixable outside the content; they
+#: must never pin an input hash (setting the key must unblock the same shot).
+_CONFIG_ERROR_TOKENS = (
+    "api key", "apikey", "api_key", "not set", "unauthorized", "accessdenied",
+    "401", "403", "credential",
+)
 
 #: Remembers content-rejected input hashes so a resume cannot re-pay for a
 #: call that is guaranteed to fail again until the content changes.
@@ -110,6 +116,8 @@ def classify_provider_error(message: Any) -> str:
     treated as possibly transient.
     """
     text = str(message or "").lower()
+    if any(token in text for token in _CONFIG_ERROR_TOKENS):
+        return "config"
     if any(token in text for token in _QUOTA_ERROR_TOKENS):
         return "quota"
     if any(token in text for token in _CONTENT_ERROR_TOKENS):
@@ -902,7 +910,9 @@ class Driver:
 
         # A content-rejected input is remembered so a resume cannot pay again
         # for a call that is guaranteed to fail until the parameters change.
-        previous_failure = self._known_failure(stage, slot, tool, work_item)
+        previous_failure = self._known_failure(
+            stage, slot, tool, work_item, model=row.get("tool_model")
+        )
         if previous_failure is not None:
             raise self._pause(
                 ErrorCode.BATCH_PRECONDITION_FAILED,
@@ -959,7 +969,8 @@ class Driver:
             kind = classify_provider_error(exc)
             if kind == "content":
                 self._remember_failed_input(
-                    stage, slot, tool, work_item, str(exc)
+                    stage, slot, tool, work_item, str(exc),
+                    model=row.get("tool_model"),
                 )
             raise self._pause(
                 ErrorCode.INTERNAL_ERROR,
@@ -999,7 +1010,8 @@ class Driver:
             kind = classify_provider_error(failure_text)
             if kind == "content":
                 self._remember_failed_input(
-                    stage, slot, tool, work_item, str(failure_text)
+                    stage, slot, tool, work_item, str(failure_text),
+                    model=row.get("tool_model"),
                 )
             raise self._pause(
                 ErrorCode.INTERNAL_ERROR,
@@ -1452,6 +1464,14 @@ class Driver:
             return {}
         return data if isinstance(data, dict) else {}
 
+    def _failure_key(
+        self, stage: str, slot: str, tool: str, work_item: WorkItem,
+        model: Optional[str],
+    ) -> str:
+        # The model is part of the identity: switching to a model that supports
+        # the parameters must release the memo even though the tool is the same.
+        return f"{self._input_hash(stage, slot, tool, work_item)}:{model or ''}"
+
     def _remember_failed_input(
         self,
         stage: str,
@@ -1459,10 +1479,11 @@ class Driver:
         tool: str,
         work_item: WorkItem,
         error: str,
+        model: Optional[str] = None,
     ) -> None:
         """Pin a content-rejected input so the same call is never re-paid."""
         data = self._load_failed_inputs()
-        data[self._input_hash(stage, slot, tool, work_item)] = {
+        data[self._failure_key(stage, slot, tool, work_item, model)] = {
             "stage": stage,
             "slot": slot,
             "tool": tool,
@@ -1477,10 +1498,11 @@ class Driver:
         )
 
     def _known_failure(
-        self, stage: str, slot: str, tool: str, work_item: WorkItem
+        self, stage: str, slot: str, tool: str, work_item: WorkItem,
+        model: Optional[str] = None,
     ) -> Optional[dict[str, Any]]:
         data = self._load_failed_inputs()
-        return data.get(self._input_hash(stage, slot, tool, work_item))
+        return data.get(self._failure_key(stage, slot, tool, work_item, model))
 
     def _input_hash(
         self, stage: str, slot: str, tool: str, work_item: Optional[WorkItem] = None
