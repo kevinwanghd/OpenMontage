@@ -52,6 +52,30 @@ be reused across episodes (CHAR-09).
   record is registered through `lib/asset_library.py` so later episodes resolve
   the same identity without re-casting.
 
+### Voice casting (mandatory for speaking roles)
+
+The logical `voice_id` (e.g. `voice_margaret`) is an identity, not something a
+speech provider can synthesize. Every speaking character must also carry the
+concrete provider mapping, cast to match age, gender and the language the lines
+are written in:
+
+```json
+"tts": {
+  "provider": "doubao",
+  "voice_id": "zh_female_wanwanxiaohe_moon_bigtts",
+  "resource_id": "seed-tts-1.0"
+}
+```
+
+Rules:
+
+- Never rely on the global `DOUBAO_SPEECH_VOICE_TYPE` default for drama
+  dialogue; it is one voice for the whole episode and will mismatch most cast.
+- Different characters get different `voice_id`s; the speaker/resource pair
+  must belong to the same resource package or the provider rejects it.
+- Verify the mapping with one short TTS line before the shot_gen stage; a
+  wrong voice discovered after video generation wastes the whole clip.
+
 ## Slots
 
 - `image_character_key` (required): the capability slot that generates costume

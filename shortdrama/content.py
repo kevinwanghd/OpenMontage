@@ -274,7 +274,46 @@ def _keyframe_items(
     return items
 
 
-def _shot_tts_items(scene_plan: dict[str, Any]) -> list[WorkItem]:
+def _character_voice(card: Optional[dict[str, Any]]) -> dict[str, Any]:
+    """Provider voice fields declared by a character card.
+
+    ``voice_id`` on the card is a logical id (``voice_margaret``), which a
+    speech provider cannot use. The concrete provider voice lives under the
+    ``tts`` object so casting stays in the artifact, not in code.
+    """
+    if not card:
+        return {}
+    tts = card.get("tts") if isinstance(card.get("tts"), dict) else {}
+    voice_id = tts.get("voice_id") or card.get("tts_voice")
+    resource_id = tts.get("resource_id") or card.get("tts_resource_id")
+    out: dict[str, Any] = {}
+    if isinstance(voice_id, str) and voice_id:
+        out["voice_id"] = voice_id
+    if isinstance(resource_id, str) and resource_id:
+        out["resource_id"] = resource_id
+    return out
+
+
+def _speaker_card(
+    speaker: Any, characters: dict[str, dict[str, Any]]
+) -> Optional[dict[str, Any]]:
+    """Resolve a character id or display name to its card."""
+    if not speaker:
+        return None
+    key = str(speaker).strip()
+    if key in characters:
+        return characters[key]
+    lowered = key.lower()
+    for card in characters.values():
+        if str(card.get("name") or "").strip().lower() == lowered:
+            return card
+    return None
+
+
+def _shot_tts_items(
+    scene_plan: dict[str, Any],
+    characters: Optional[dict[str, dict[str, Any]]] = None,
+) -> list[WorkItem]:
     """One dialogue TTS item per shot that speaks on screen (shot_gen stage).
 
     Producing the track here -- before video_primary in the same stage -- is
@@ -288,12 +327,9 @@ def _shot_tts_items(scene_plan: dict[str, Any]) -> list[WorkItem]:
         text = (dialogue.get("text") or "").strip()
         if not text:
             continue
-        items.append(
-            WorkItem(
-                _shot_id(shot),
-                {"text": text, "speaker": dialogue.get("speaker")},
-            )
-        )
+        inputs: dict[str, Any] = {"text": text, "speaker": dialogue.get("speaker")}
+        inputs.update(_character_voice(_speaker_card(dialogue.get("speaker"), characters or {})))
+        items.append(WorkItem(_shot_id(shot), inputs))
     return items
 
 
@@ -348,7 +384,17 @@ def _shot_items(
             audio = audio_path_for(shot_id)
             if audio:
                 # Dialogue track produced by the shot_gen tts_voice slot; the
-                # video model drives mouth shapes from it.
+                # video model drives mouth shapes from it. The line must be in
+                # the prompt too: a reference-audio model otherwise invents
+                # its own speech (wrong words and wrong voice).
+                dialogue = shot.get("dialogue")
+                if isinstance(dialogue, dict) and (dialogue.get("text") or "").strip():
+                    line = str(dialogue["text"]).strip()
+                    inputs["prompt"] = (
+                        f'{inputs["prompt"]} The character speaks exactly: '
+                        f'"{line}". Mouth shapes and timing follow the supplied '
+                        "audio, and the voice keeps that audio's timbre."
+                    )
                 inputs["audio_path"] = audio
         items.append(WorkItem(shot_id, inputs))
     if missing:
@@ -361,7 +407,25 @@ def _shot_items(
     return items
 
 
-def _tts_items(script: dict[str, Any]) -> list[WorkItem]:
+def _section_speaker(section: dict[str, Any]) -> Optional[str]:
+    """Structured speaker if present, else the name prefix of the direction."""
+    speaker = section.get("speaker")
+    if isinstance(speaker, str) and speaker.strip():
+        return speaker.strip()
+    directions = section.get("speaker_directions")
+    if isinstance(directions, str) and directions.strip():
+        head = directions.split("-", 1)[0].strip()
+        if head and 0 < len(head) <= 40 and head.upper() != head:
+            return head
+        if head and head.upper() == head and head.isalpha():
+            return head
+    return None
+
+
+def _tts_items(
+    script: dict[str, Any],
+    characters: Optional[dict[str, dict[str, Any]]] = None,
+) -> list[WorkItem]:
     sections = script.get("sections")
     if not isinstance(sections, list):
         raise ContentError("script has no sections[]")
@@ -376,6 +440,9 @@ def _tts_items(script: dict[str, Any]) -> list[WorkItem]:
         inputs: dict[str, Any] = {"text": text}
         if isinstance(section.get("speaker_directions"), str):
             inputs["speaker_directions"] = section["speaker_directions"]
+        inputs.update(
+            _character_voice(_speaker_card(_section_speaker(section), characters or {}))
+        )
         items.append(WorkItem(section_id, inputs))
     return items
 
@@ -432,11 +499,17 @@ def build_work_items(
             scene_plan = artifacts.get("scene_plan")
             if not scene_plan:
                 raise ContentError("shot_gen tts requires the scene_plan artifact")
-            return _shot_tts_items(scene_plan)
+            return _shot_tts_items(
+            scene_plan,
+            _character_cards(projects_dir or Path("."), project, episode, artifacts),
+        )
         script = artifacts.get("script")
         if not script:
             raise ContentError("assembly requires the script artifact")
-        return _tts_items(script)
+        return _tts_items(
+            script,
+            _character_cards(projects_dir or Path("."), project, episode, artifacts),
+        )
     if slot == "subtitle":
         return _subtitle_items(artifacts, projects_dir, project, episode)
     if slot == "compose":
