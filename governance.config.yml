@@ -79,34 +79,42 @@ auto_merge:
   delete_branch_after_merge: true
   require_up_to_date_branch: true
   require_all_required_checks: true
+  # 仓库自己的 CI；gate 等它在该 PR 提交上跑完，失败或超时都会阻止自动合并
+  ci_workflows:
+    - ci.yml
   required_checks_by_risk:
     low:
       - risk-scan
       - secret-scan
       - mr-validate
+      - ci
     medium:
       - risk-scan
       - secret-scan
       - mr-validate
       - test-check
+      - ci
 
     high:
       - risk-scan
       - secret-scan
       - mr-validate
       - test-check
+      - ci
 
     critical:
       - risk-scan
       - secret-scan
       - mr-validate
       - test-check
+      - ci
 
   required_checks:
     - risk-scan
     - secret-scan
     - mr-validate
     - test-check
+    - ci
   protected_paths:
     - AGENTS.md
     - CLAUDE.md
