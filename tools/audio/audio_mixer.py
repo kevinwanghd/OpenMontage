@@ -444,7 +444,7 @@ class AudioMixer(BaseTool):
         # not stable across builds (the CI ffmpeg once bound it so the release
         # never landed, leaving music ducked long after speech ended). The
         # full_mix graph below has always forked explicitly for this reason.
-        # risk:untested reason:"native FFmpeg filtergraph exercised end to end by tests/tools/test_audio_mixer_ducking_timing.py; thin static gate cannot link that coverage, CI runs the suite" owner:@kevinwanghd reviewed:2026-11-16
+        # risk:untested reason:"native FFmpeg filtergraph exercised end to end by tests/tools/test_audio_mixer_ducking_timing.py; thin static gate cannot link that coverage, CI runs the suite" owner:@kevinwanghd reviewed:2026-11-15
         filter_complex = (
             f"[0:a]asplit=2[speech_key][speech_out];"
             f"[1:a][speech_key]sidechaincompress="
@@ -453,7 +453,7 @@ class AudioMixer(BaseTool):
             f"[ducked]volume={music_vol * 3}[music_out];"  # compensate sidechain level
             # normalize=0: the default normalize=1 halves both inputs, so the
             # speech came out 6 dB down. No loudnorm follows, so guard clipping.
-            f"[speech_out][music_out]amix=inputs=2:duration=longest:normalize=0[mixed];"
+            f"[0:a][music_out]amix=inputs=2:duration=longest:normalize=0[mixed];"
             + self._limiter_filter("mixed", "out")
         )
 
