@@ -16,6 +16,9 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# 合并门禁以「workflow 整体结论」判定（governance.config.yml 的 ci_workflows），
+# 不是按单个 job 登记：Lint 失败会让整个 workflow 失败，从而阻止 AUTO_MERGE，
+# 不依赖 branch protection 的必需检查列表。
 jobs:
   lint:
     name: Lint
