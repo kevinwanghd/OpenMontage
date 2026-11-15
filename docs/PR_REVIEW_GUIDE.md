@@ -3,7 +3,8 @@
 This guide is for community reviewers, maintainers, and AI assistants reviewing
 OpenMontage pull requests. It is a review framework, not a closed checklist.
 Use it to structure the review, then keep looking for issues that are specific
-to the PR in front of you.
+to the PR in front of you. The machine-enforced blocking items live in
+[`ops/review-points.md`](../ops/review-points.md); this guide stays the human-readable framework.
 
 OpenMontage is an agent-orchestrated video production system. Many PRs affect
 more than the file they edit: a provider change can affect tool discovery,
