@@ -134,6 +134,10 @@ auto_merge:
   protected_paths:
     - AGENTS.md
     - CLAUDE.md
+    # 对 Agent 有约束力的规则文档：改动需人工审批，且不在免审范围
+    - AGENT_GUIDE.md
+    - docs/decisions.md
+    - docs/declined.md
     - .hermes.md
     - .github/copilot-instructions.md
     - .cursor/rules/**
