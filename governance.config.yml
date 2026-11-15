@@ -86,11 +86,11 @@ auto_merge:
   ai_review:
     model: glm-5.3
     points: ops/review-points.md
+    # 免审只限纯用户文档；治理/评审规则（ops/**）与根文档不在内
     internal:
-      - "**/*.md"
-  # review 在纯文档改动时记 skip（免审），skip 也算满足；ci 不列入，缺运行仍阻断
-  skip_counts_as_pass:
-    - review
+      - "docs/*"
+      - "README.md"
+      - "README_zh-CN.md"
   required_checks_by_risk:
     low:
       - risk-scan
