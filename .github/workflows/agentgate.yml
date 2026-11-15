@@ -2,7 +2,10 @@ name: AgentGate
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, edited]
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+  # approve 后重跑 gate，让 critical 审批推动自动合并（AgentGate#124）
+  pull_request_review:
+    types: [submitted]
 
 # auto-merge 任务需要 contents: write（enablePullRequestAutoMerge）；
 # 可复用工作流的 GITHUB_TOKEN 权限不得超过 caller 此处声明的上限
