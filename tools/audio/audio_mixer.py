@@ -437,15 +437,23 @@ class AudioMixer(BaseTool):
         attack = ducking.get("attack_ms", 200)
         release = ducking.get("release_ms", 500)
 
-        # Sidechain compress: use speech as the key signal to duck music
+        # Sidechain compress: use speech as the key signal to duck music.
+        # Both sidechain inputs are labelled explicitly: the speech is split
+        # with asplit so it can feed the key AND the output mix. Leaving the
+        # key pad unlabelled lets FFmpeg auto-wire it, and that inference is
+        # not stable across builds (the CI ffmpeg once bound it so the release
+        # never landed, leaving music ducked long after speech ended). The
+        # full_mix graph below has always forked explicitly for this reason.
+        # risk:untested reason:"native FFmpeg filtergraph exercised end to end by tests/tools/test_audio_mixer_ducking_timing.py; thin static gate cannot link that coverage, CI runs the suite" owner:@kevinwanghd reviewed:2026-11-16
         filter_complex = (
-            f"[1:a]sidechaincompress="
+            f"[0:a]asplit=2[speech_key][speech_out];"
+            f"[1:a][speech_key]sidechaincompress="
             f"threshold=0.02:ratio=9:attack={attack}:release={release}:"
             f"level_sc=1:mix=0.9[ducked];"
             f"[ducked]volume={music_vol * 3}[music_out];"  # compensate sidechain level
             # normalize=0: the default normalize=1 halves both inputs, so the
             # speech came out 6 dB down. No loudnorm follows, so guard clipping.
-            f"[0:a][music_out]amix=inputs=2:duration=longest:normalize=0[mixed];"
+            f"[speech_out][music_out]amix=inputs=2:duration=longest:normalize=0[mixed];"
             + self._limiter_filter("mixed", "out")
         )
 
