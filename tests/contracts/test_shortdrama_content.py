@@ -456,3 +456,28 @@ def test_dialogue_video_prompt_names_the_line_and_timbre(tmp_path: Path):
     prompt = items[0].inputs["prompt"]
     assert "I made too much soup." in prompt
     assert "timbre" in prompt
+
+
+def test_video_prompt_locks_location_and_props(tmp_path: Path):
+    plan = _scene_plan(1)
+    plan["scenes"][0]["description"] = "a small kitchen with wooden cabinets"
+    plan["shots"][0]["scene_id"] = "sc1"
+    plan["shots"][0]["prop_ids"] = ["prop_bag"]
+    plan["props"] = [{"id": "prop_bag",
+                      "description": "brown canvas messenger bag"}]
+    assets = tmp_path / "demo" / "ep01" / "assets"
+    assets.mkdir(parents=True)
+    (assets / "kf.png").write_bytes(b"x")
+    manifest = {"assets": [{"type": "image", "scene_id": "sh_000",
+                            "path": str(assets / "kf.png")}]}
+
+    items = build_work_items(
+        "shot_gen", "video_primary",
+        {"scene_plan": plan, "asset_manifest": manifest, "drama_character": _card()},
+        projects_dir=tmp_path, project="demo", episode="ep01",
+    )
+
+    prompt = items[0].inputs["prompt"]
+    assert "Location: a small kitchen with wooden cabinets" in prompt
+    assert "On-screen props: brown canvas messenger bag" in prompt
+    assert "woman in her late twenties" in prompt  # identity canon is kept
