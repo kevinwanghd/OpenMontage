@@ -595,3 +595,25 @@ def test_audio_url_is_not_sent_to_models_without_audio():
         resolution="720p", duration_seconds=3,
     )
     assert "audio_url" not in payload["input"]
+
+
+def test_wan27_rejects_base64_driving_audio():
+    with pytest.raises(ValueError, match="public HTTP"):
+        build_request_payload(
+            "she speaks", operation="first_frame", model="wan2.7-i2v",
+            image_url="https://example.test/f.png",
+            audio_url="data:audio/mpeg;base64,BB",
+        )
+
+
+def test_wan27_audio_requires_first_frame():
+    with pytest.raises(ValueError, match="first frame"):
+        build_request_payload(
+            "she speaks", operation="text_to_video", model="wan2.7-t2v",
+            audio_url="https://example.test/v.mp3",
+        )
+
+
+def test_wan30_text_to_video_is_silent_by_default():
+    payload = build_request_payload("a quiet kitchen", model="wan3.0-video")
+    assert payload["parameters"]["audio"] is False

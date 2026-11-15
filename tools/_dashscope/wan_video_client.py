@@ -162,6 +162,16 @@ def build_request_payload(
         # 480P does not exist on 2.7; the nearest supported tier is 720P.
         if _RESOLUTION_RANK.get(canonical_resolution, 0) < _RESOLUTION_RANK["720p"]:
             parameters["resolution"] = WAN27_MIN_RESOLUTION.upper()
+        if audio_url and str(audio_url).startswith("data:"):
+            raise ValueError(
+                "wan2.7 driving_audio accepts only public HTTP(S) or oss:// "
+                "URLs, not base64 data URIs; upload the track first"
+            )
+        if audio_url and not image_url:
+            raise ValueError(
+                "wan2.7 audio driving requires a first frame alongside "
+                "driving_audio"
+            )
         media: list[dict[str, str]] = []
         if image_url:
             media.append({"type": "first_frame", "url": image_url})
@@ -199,7 +209,9 @@ def build_request_payload(
             parameters["audio"] = True
         elif image_url:
             media.append({"type": "first_frame", "url": image_url})
-            parameters["audio"] = False
+        # Silent unless a dialogue track is supplied: assembly owns the mix,
+        # and the API's default (audio=true) would auto-generate sound.
+        parameters["audio"] = bool(audio_url)
         if media:
             video_input["media"] = media
 
