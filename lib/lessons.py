@@ -45,6 +45,7 @@ REQUIRED_FIELDS = ("id", "enforcement", "trigger", "risk", "fix", "regression", 
 # working unchanged, so no data migration is needed.
 HARD_REQUIRED_FIELDS = ("predicate", "regression_fixture")
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_LESSONS_PATH = (
     Path(__file__).resolve().parents[1] / "governance" / "lessons" / "repository.yml"
 )
@@ -115,7 +116,14 @@ def _as_text(value: Any) -> str:
 def validate_lesson(
     record: Mapping[str, Any], *, stages: Optional[Iterable[str]] = None
 ) -> list[str]:
-    """Return human-readable problems with one lesson record ([] when valid)."""
+    """Return human-readable problems with one lesson record ([] when valid).
+
+    The predicate primitives register themselves on import; doing it here (not
+    at module scope) keeps ``lib.lessons`` importable on its own and avoids a
+    module-level import cycle with ``lib.lesson_predicates``.
+    """
+    # risk:suppressed-warning reason:"导入只为注册原语副作用，函数级导入用于避免模块级循环；不是未使用导入的缺陷" owner:@kevinwanghd reviewed:2026-11-16
+    from lib import lesson_predicates  # noqa: F401 — registration side effect
     problems: list[str] = []
     stage_set = frozenset(stages) if stages is not None else known_stages()
 
@@ -161,6 +169,11 @@ def validate_lesson(
         for name in HARD_REQUIRED_FIELDS:
             if not record.get(name):
                 problems.append(f"hard lesson requires '{name}' (v2.6 D24)")
+        fixture = _as_text(record.get("regression_fixture"))
+        if fixture and not (REPO_ROOT / fixture).is_file():
+            problems.append(
+                f"hard lesson regression_fixture does not exist: {fixture} (v2.6 LESSON-07)"
+            )
         if reason_code and reason_code not in REASON_CODES:
             pass  # already reported above
     return problems

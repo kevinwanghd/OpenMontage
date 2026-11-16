@@ -95,7 +95,7 @@ def test_plan_tolerates_a_hard_lesson_without_reason_code(tmp_path, monkeypatch)
         "    status: confirmed\n"
         "    applies_to_stages: [delivery]\n"
         "    predicate: {kind: probe}\n"
-        "    regression_fixture: tests/fixtures/x.json\n"
+        "    regression_fixture: tests/fixtures/lessons/m1_subtitle_early.json\n"
         "    trigger: t\n"
         "    risk: r\n"
         "    fix: f\n"

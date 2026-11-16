@@ -194,3 +194,40 @@ def test_w5_creative_reject_does_not_close_gate(projects, bindings):
     driver = Driver("demo", "ep01", projects_dir=projects, profile="alpha")
     with pytest.raises(ApiError):
         driver._preflight_stage("delivery")
+
+def test_l06_failing_lesson_evidence_blocks_delivery_then_passes(projects, bindings):
+    import json as _json
+
+    artifacts = projects / "demo" / "ep01" / "artifacts"
+    artifacts.mkdir(parents=True, exist_ok=True)
+    evidence = artifacts / "lesson_evidence_delivery.json"
+    evidence.write_text(_json.dumps({
+        "subtitles": [{"start": 16.32, "end": 18.55}],
+        "speech": [{"start": 17.68, "end": 19.30}],
+    }), encoding="utf-8")
+    driver = Driver("demo", "ep01", projects_dir=projects, profile="alpha")
+    with pytest.raises(ApiError) as raised:
+        driver._preflight_stage("delivery")
+    assert "shortdrama.subtitle.timing_vs_speech" in str(raised.value)
+
+    evidence.write_text(_json.dumps({
+        "subtitles": [{"start": 17.63, "end": 19.30}],
+        "speech": [{"start": 17.68, "end": 19.30}],
+    }), encoding="utf-8")
+    Driver("demo", "ep01", projects_dir=projects, profile="alpha")._preflight_stage("delivery")
+
+
+def test_l06_plan_lists_hard_lessons_without_evaluating(projects, bindings):
+    plan = Driver("demo", "ep01", projects_dir=projects, profile="alpha").plan()
+    assert "hard_lessons_pending" in plan
+    assert any(row["id"] == "shortdrama.subtitle.timing_vs_speech" for row in plan["hard_lessons_pending"])
+
+
+def test_l06_corrupt_lesson_evidence_blocks_instead_of_skipping(projects, bindings):
+    artifacts = projects / "demo" / "ep01" / "artifacts"
+    artifacts.mkdir(parents=True, exist_ok=True)
+    (artifacts / "lesson_evidence_delivery.json").write_text("{not json", encoding="utf-8")
+    driver = Driver("demo", "ep01", projects_dir=projects, profile="alpha")
+    with pytest.raises(ApiError) as raised:
+        driver._preflight_stage("delivery")
+    assert "lesson evidence is unusable" in str(raised.value)

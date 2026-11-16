@@ -40,6 +40,16 @@
 - **例外**：纯 bug 修复（不改流程语义）可直接修；但若修复暴露了流程缺口，缺口本身仍须回写 PRD 后再拆卡。
 - 由来：2026-11-16 讨论"教训进化机制"时用户定下——设计不落 PRD 就会随会话蒸发，下一次又从零争论。
 
+## 2026-11-16 lessons schema 迁移：reason_code 变为可选（CARD-L08）
+
+- **变更**：`lib/lessons.py` 的 `HARD_REQUIRED_FIELDS` 去掉了 `reason_code`；hard 仍强制 `predicate` + `regression_fixture`。
+- **原因**：教训的身份是 predicate。`REASON_CODES` 只服务"驳回→怎么重做"的策略表，只有真会出现在审核决策里的失败类才有码。
+- **下游影响与迁移**：
+  - 读取 lesson 的代码必须把 `reason_code` 当可空字段（`Lesson.reason_code: Optional[str]`，当前实现已如此）。
+  - 任何"用 reason_code 索引 `STRATEGIES`"的代码必须先判空；`STRATEGIES` 只覆盖已注册码，缺省不应 KeyError。
+  - 已有教训记录不需要改：旧的 `reason_code` 保留生效；新 hard 教训只有在同时登记了审核码时才填。
+- **回退**：把 `reason_code` 加回 `HARD_REQUIRED_FIELDS` 即恢复旧约束；既有数据无需迁移。
+
 ## 2026-11-16 lesson gate 与「Python 只做工具」边界的裁决
 
 - **冲突**：审查规则要求编排/审核决策留在 Agent 层；PRD v2.6 §4 要求 `_preflight_stage` 求值 hard lesson 并 BLOCKED。

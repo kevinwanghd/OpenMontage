@@ -36,6 +36,7 @@ def test_approval_basis_missing_stays_out_of_the_review_vocabulary():
     # would require inventing a meaningless regeneration strategy.
     assert "APPROVAL_BASIS_MISSING" not in REASON_CODES
     assert "APPROVAL_BASIS_MISSING" not in STRATEGIES
+    assert "APPROVAL_BASIS_MISSING" not in STRATEGIES
 
 def test_lessons_never_index_strategies_by_reason_code():
     # Dropping the hard-lesson reason_code requirement is safe only while no

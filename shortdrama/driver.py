@@ -28,10 +28,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional
+
+_lesson_logger = logging.getLogger(__name__)
 
 from lib import capability_slots as slots
 from lib import agent_models, director_gates, music_licenses
@@ -267,6 +270,9 @@ class Driver:
             # sees the applicable rules before running anything. Read-only: the
             # plan never evaluates a predicate.
             "applicable_lessons": self._applicable_lessons(),
+            # v2.6 LESSON-06: hard lessons that will block a stage unless their
+            # evidence makes them pass. Still read-only — nothing is evaluated.
+            "hard_lessons_pending": self._hard_lessons_pending(),
         }
 
     def _applicable_lessons(self) -> list[dict[str, Any]]:
@@ -288,6 +294,107 @@ class Driver:
             for lesson in loaded
             if any(lesson.applies_to(stage) for stage in self.stage_order)
         ]
+
+    def _lesson_context(self, stage: str) -> dict[str, Any]:
+        """Evidence a predicate may read. Never fetches or generates anything."""
+        from shortdrama import content
+
+        context: dict[str, Any] = {}
+        checkpoint = read_checkpoint(self.projects_dir, self.project, stage)
+        if checkpoint:
+            context["checkpoint"] = checkpoint
+        edit_decisions = self._artifacts().get("edit_decisions")
+        if edit_decisions:
+            context["edit_decisions"] = edit_decisions
+        # Measurements a predicate cannot derive on its own (speech intervals,
+        # loudness, version binding) live next to the stage artifacts.
+        evidence_path = (
+            content.episode_artifacts_dir(self.projects_dir, self.project, self.episode)
+            / f"lesson_evidence_{stage}.json"
+        )
+        if evidence_path.is_file():
+            try:
+                evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as error:
+                # A file that exists but cannot be read is not "no evidence":
+                # silently skipping it would disarm the hard lesson.
+                raise ValueError(
+                    f"lesson evidence unreadable: {evidence_path}: "
+                    f"{type(error).__name__}: {error}"
+                ) from error
+            if isinstance(evidence, dict):
+                context.update(evidence)
+        return context
+
+    def _lesson_gate(self, stage: str) -> None:
+        """v2.6 LESSON-06: applicable hard lessons must be True, or the stage BLOCKS.
+
+        This enforces a decision that is already made elsewhere: a hard lesson
+        only reaches the repository after human confirmation (status=confirmed)
+        and carries a predicate + incident fixture. The driver adds no new
+        authority here — it refuses to spend money when a human-approved
+        invariant is violated, the same way the D19 agent-model and continuity
+        gates do. Keeping the check unskippable in code is the point: an
+        Agent-layer-only rule is exactly the W1-W6 "module built, never called"
+        failure this lesson loop exists to prevent.
+        """
+        from lib import lesson_gate, lessons as lesson_mod
+
+        self._lesson_evaluated = getattr(self, "_lesson_evaluated", 0)
+        self._lesson_blocked = getattr(self, "_lesson_blocked", 0)
+        try:
+            loaded = lesson_mod.load()
+        except lesson_mod.LessonConfigError as error:
+            raise self._pause(
+                ErrorCode.BATCH_PRECONDITION_FAILED,
+                f"lesson repository is unusable: {error}",
+                "fix governance/lessons/repository.yml; a lesson that cannot "
+                "load must never be skipped",
+                recovery="do-X-first",
+                side_effects="none",
+                context={"stage": stage},
+            ) from error
+        hard = lesson_gate.applicable_hard_lessons(stage, loaded)
+        if not hard:
+            return
+        try:
+            context = self._lesson_context(stage)
+        except ValueError as error:
+            raise self._pause(
+                ErrorCode.BATCH_PRECONDITION_FAILED,
+                f"lesson evidence is unusable at stage '{stage}': {error}",
+                "rewrite the stage's lesson_evidence_<stage>.json so it parses; "
+                "a corrupt evidence file must never disarm a hard lesson",
+                recovery="do-X-first",
+                side_effects="none",
+                context={"stage": stage},
+            ) from error
+        skipped: list[dict[str, Any]] = []
+        blocked = lesson_gate.blocked_entries(stage, hard, context, skipped)
+        self._lesson_evaluated += len(hard)
+        for entry in skipped:
+            _lesson_logger.warning(
+                "lesson %s not evaluated at stage %s: %s",
+                entry["id"], stage, entry["reason"],
+            )
+        if blocked:
+            self._lesson_blocked += len(blocked)
+            first = blocked[0]
+            raise self._pause(
+                ErrorCode.BATCH_PRECONDITION_FAILED,
+                f"lesson gate blocked stage '{stage}': {first['id']} "
+                f"({first['verdict']}) — {first['reason']}",
+                first["fix"],
+                recovery="do-X-first",
+                side_effects="none",
+                context={"stage": stage, "lessons": blocked},
+            )
+
+    def _hard_lessons_pending(self) -> list[dict[str, Any]]:
+        """Hard lessons the next run will enforce, per stage (read-only)."""
+        from lib import lesson_gate, lessons as lesson_mod
+
+        return lesson_gate.pending_hard_lessons(self.stage_order, lesson_mod.load())
 
     # ------------------------------------------------------------------
     # Entry point
@@ -736,6 +843,9 @@ class Driver:
                 side_effects="none",
                 context={"stage": stage, "continuity_errors": errors},
             )
+        # v2.6 LESSON-06: hard lessons that apply to this stage block before any
+        # paid call. Failure to evaluate is a block, never a skip.
+        self._lesson_gate(stage)
         if stage == "shot_gen" and self.keyframes_required and self.qa_enabled:
             # The reviewer runs on stills, before the expensive video call: a
             # rejected keyframe must never be inherited by a generated clip.
