@@ -31,6 +31,7 @@ import json
 import os
 import re
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -119,6 +120,12 @@ class GatewayTransport:
             raise DualAgentError("ANTHROPIC_BASE_URL is not set")
         if not self.api_key:
             raise DualAgentError("ANTHROPIC_AUTH_TOKEN/ANTHROPIC_API_KEY is not set")
+        scheme = urllib.parse.urlsplit(self.base_url).scheme.lower()
+        if scheme != "https":
+            raise DualAgentError(
+                f"ANTHROPIC_BASE_URL must use https, got {scheme or 'no scheme'}: "
+                "refusing to send credentials over an unencrypted connection"
+            )
         body = json.dumps(
             {
                 "model": model,
