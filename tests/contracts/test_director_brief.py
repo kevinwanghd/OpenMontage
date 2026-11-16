@@ -87,3 +87,15 @@ def test_checkpoint_rejects_invalid_director_brief():
             "completed",
             {"brief": VALID_BRIEF, "director_brief": bad},
         )
+
+
+def test_legacy_idea_checkpoint_without_director_brief_still_valid():
+    """Backward compatibility: director_brief is supplementary, not required.
+
+    Projects checkpointed before v2.5 only carry ``brief`` at the idea stage.
+    Checkpoint validation enforces CANONICAL_STAGE_ARTIFACTS, so an artifact
+    added to SUPPLEMENTARY_ARTIFACTS must not invalidate those checkpoints or
+    require a data migration. This test fails if director_brief is ever
+    promoted to a hard requirement without a migration story.
+    """
+    _validate_artifacts_for_stage("idea", "completed", {"brief": VALID_BRIEF})

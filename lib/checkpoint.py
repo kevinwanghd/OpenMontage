@@ -41,6 +41,9 @@ CANONICAL_STAGE_ARTIFACTS = {
 
 # Additional artifacts that may be produced alongside canonical ones.
 # These are not stage-defining but are required by governance contracts.
+# Membership here is declarative: these artifacts are schema-validated when
+# present, but their absence is never enforced by checkpoint validation, so
+# adding one cannot invalidate checkpoints written by earlier versions.
 SUPPLEMENTARY_ARTIFACTS = {
     "source_media_review",  # Required before first planning stage when user media exists
     "final_review",         # Required by compose stage before presenting to user
