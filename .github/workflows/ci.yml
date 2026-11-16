@@ -22,7 +22,8 @@ concurrency:
 jobs:
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+    # 固定镜像：预装工具（如 ffmpeg）随镜像更新漂移，锁版本才能复现
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout repository
@@ -32,10 +33,15 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: pip
-          cache-dependency-path: |
-            requirements.txt
-            requirements-dev.txt
+          # 不用 setup-python 的 pip 缓存：依赖改由 uv 安装，pip 缓存目录不存在
+          # 会让 post 步骤报错；uv 自带缓存
+
+      # 分片若漏掉某个测试目录，CI 会静默少跑用例；这里先做覆盖校验
+      - name: Check test shard coverage
+        run: python scripts/check_test_shards.py
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
 
       - name: Install dependencies
         run: make install-dev
@@ -45,8 +51,15 @@ jobs:
         run: make lint
 
   validate:
-    name: Validate Python
-    runs-on: ubuntu-latest
+    # 按目录分片，各分片跑在独立 runner 上（片内串行），墙钟≈最慢分片。
+    # 分片只决定"跑哪些用例"：仓库仍整份检出，跨目录 import 照常可用；
+    # 各分片的用例集合互不依赖对方"先跑过"（tests/qa 与 backlot 归同一片）。
+    name: Validate Python (${{ matrix.shard }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [tools, contracts, pipeline]
 
     steps:
       - name: Checkout repository
@@ -56,16 +69,19 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: pip
-          cache-dependency-path: |
-            requirements.txt
-            requirements-dev.txt
+          # 不用 setup-python 的 pip 缓存：依赖改由 uv 安装，pip 缓存目录不存在
+          # 会让 post 步骤报错；uv 自带缓存
 
-      - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update && sudo apt-get install -y ffmpeg
+          ffmpeg -version | head -1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
 
       - name: Install dependencies
         run: make install-dev
 
       - name: Run test suite
-        run: make test
+        run: make test-shard-${{ matrix.shard }}

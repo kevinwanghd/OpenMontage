@@ -80,12 +80,27 @@ setup: ensure-venv
 install: ensure-venv
 	$(PIP) install -r requirements.txt
 
+# 有 uv 时用它装依赖（实测比 pip 快一个数量级），没有就退回 pip；
+# 目标名与用法不变，本地和 CI 都走这里。
 install-dev: ensure-venv
-	$(PIP) install -r requirements-dev.txt
+	@if command -v uv >/dev/null 2>&1; then echo "==> Installing dev dependencies with uv"; uv pip install --python "$(RUN_PYTHON)" -r requirements-dev.txt; else echo "==> uv 未安装，退回 pip 安装（解析结果可能与 CI 的 uv 略有差异）"; $(PIP) install -r requirements-dev.txt; fi
 
 install-gpu: ensure-venv
 	$(PIP) install -r requirements-gpu.txt
 	$(PIP) install diffusers transformers accelerate
+
+# CI 分片：三个自包含子集，各自单跑；不依赖其它分片先跑（仓库整份检出）。
+check-test-shards:
+	$(BASE_PYTHON) scripts/check_test_shards.py
+
+test-shard-tools: ensure-venv
+	$(RUN_PYTHON) -m pytest tests/tools -q
+
+test-shard-contracts: ensure-venv
+	$(RUN_PYTHON) -m pytest tests/contracts tests/lib -q
+
+test-shard-pipeline: ensure-venv
+	$(RUN_PYTHON) -m pytest tests/ -q --ignore=tests/tools --ignore=tests/contracts --ignore=tests/lib
 
 # ---- Testing ----
 
