@@ -33,6 +33,11 @@
         "prompt_patch": { "type": ["string", "null"] },
         "override": { "type": "boolean", "default": false, "description": "Human resolves an UNKNOWN with sufficient visible evidence" },
         "evidence": { "type": "string", "description": "Required when override=true; evidence/person/time" },
+        "gate_type": {
+          "type": ["string", "null"],
+          "enum": ["creative", "technical", null],
+          "description": "v2.5 DIR-02: creative gate or technical gate; a creative approval requires a prior effective technical PASS for the same item"
+        },
         "decided_at": { "type": "string" },
         "decided_by": { "type": "string", "default": "owner" }
       },

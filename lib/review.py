@@ -40,6 +40,7 @@ from typing import Any, Optional
 from jsonschema import Draft202012Validator
 
 from lib.checkpoint import PROJECTS_DIR
+from lib.review_strategies import effective_decision_chain
 from lib.review_strategies import (
     BLOCKED_WHEN_TRIPPED, BreakerState, RetryPolicy,
     effective_decision_chain, evaluate_breaker,
@@ -205,6 +206,9 @@ class ReviewDecision:
     prompt_patch: Optional[str] = None
     override: bool = False
     evidence: str = ""
+    # v2.5 DIR-02: which gate this decision closes. None keeps pre-v2.5
+    # callers working; the creative/technical split is opt-in per decision.
+    gate_type: Optional[str] = None
     decided_at: str = field(default_factory=_now)
     decided_by: str = "owner"
 
@@ -377,6 +381,23 @@ class ReviewStore:
                 raise ReviewValidationError("pick_variant requires a chosen_candidate among candidates")
         if decision.override and not decision.evidence:
             raise ReviewValidationError("override of UNKNOWN requires recorded evidence")
+        if decision.gate_type not in (None, "creative", "technical"):
+            raise ReviewValidationError(
+                f"invalid gate_type '{decision.gate_type}' (expected creative or technical)")
+        if decision.gate_type == "creative" and decision.action in {"accept", "pick_variant"}:
+            # DIR-02: the technical gate PASS is a prerequisite for the
+            # creative gate. Approving creatively without it would let a
+            # creative judgment paper over an unverified technical defect.
+            chain = effective_decision_chain(self._records(), review_id)
+            passed = any(
+                (rec.get("decision") or {}).get("gate_type") == "technical"
+                and (rec.get("decision") or {}).get("action") in {"accept", "pick_variant"}
+                for rec in chain
+            )
+            if not passed:
+                raise ReviewValidationError(
+                    "creative gate requires a prior effective technical PASS "
+                    "for this item (DIR-02)")
 
         ver = candidate_version or item.get("candidate_version")
         if ver and item.get("candidate_version") and ver != item.get("candidate_version"):
