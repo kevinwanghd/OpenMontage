@@ -60,6 +60,10 @@ stages:
     skill: pipelines/short-drama/idea-director
     produces:
       - brief
+      # Supplementary artifact (v2.5 DIR-01): it is validated when present but
+      # is not a canonical stage artifact, so existing projects whose checkpoints
+      # predate it remain valid. No data migration is required; new runs must
+      # produce it (success_criteria below).
       - director_brief
     tools_available: []
     checkpoint_required: true
@@ -199,6 +203,7 @@ stages:
       - Schema-valid asset_manifest
       - Every shot has a generated clip linked to its keyframe
       - No silent substitution of a still image for a required motion shot
+      - Every accepted clip has a shortdrama-reviewer PASS verdict; a REJECT verdict (any blocking issue) is regenerated, never accepted
     sub_stages:
       - name: native_dialogue_lipsync
         description: "Video binding renders dialogue lipsync natively; no extra audio stages."
