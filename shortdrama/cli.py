@@ -199,6 +199,14 @@ def _validate_decision(
     with tempfile.TemporaryDirectory(prefix="om-dry-run-") as tmp:
         store = ReviewStore("dry-run", "dry-run", Path(tmp))
         store.add_item(ReviewItem(**{k: item[k] for k in _ITEM_FIELDS if k in item}))
+        # Replay this review's prior decisions/undos so gate ordering (DIR-02)
+        # validates against the real history: a creative approval checks for
+        # a prior technical PASS that lives in the episode log.
+        for rec in service.review_history(review_id):
+            if rec.get("event_type") == "item":
+                continue
+            with store.path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(rec, ensure_ascii=False) + "\n")
         try:
             store.decide(review_id, decision, candidate_version=candidate_version)
         except StaleReviewError:
@@ -229,6 +237,13 @@ def _validate_decision(
 
 def _cmd_review_list(args: argparse.Namespace) -> int:
     service = _service(args)
+    if args.creative_recheck:
+        result = service.creative_recheck(episode=args.episode)
+        _write(result, args.json)
+        if not args.json:
+            for review_id in result["review_ids"]:
+                sys.stdout.write(f"  {review_id}\tcreative-recheck\n")
+        return 0 if result["count"] else 3
     result = service.list_pending(
         episode=args.episode,
         stage=args.stage,
@@ -285,6 +300,7 @@ def _cmd_review_decide(args: argparse.Namespace) -> int:
         prompt_patch=args.prompt_patch,
         override=args.override,
         evidence=args.evidence or "",
+        gate_type=getattr(args, "gate_type", None),
     )
 
     # Validate through the real authority even on a dry run, so the CLI rejects
@@ -310,6 +326,7 @@ def _cmd_review_decide(args: argparse.Namespace) -> int:
             chosen_candidate=args.candidate,
             reason_code=args.reason,
             note=args.note or "",
+            gate_type=getattr(args, "gate_type", None),
             prompt_patch=args.prompt_patch,
             override=args.override,
             evidence=args.evidence or "",
@@ -496,20 +513,57 @@ def _cmd_review_watch(args: argparse.Namespace) -> int:
         review_version = str(previous)
 
     watched = args.watched_seconds if args.watched_seconds is not None else duration
-    note = (
-        f"full_watch stage={args.stage} duration={duration}s "
-        f"watched={watched}s version={version[:12]}"
-    )
-    store.decide(
-        review_id,
-        ReviewDecision(
-            action="accept",
-            note=note,
-            evidence=f"full_watch sha256:{version} stage:{args.stage} at:{_now()}",
-            decided_by="owner",
-        ),
-        candidate_version=version,
-    )
+    judgments = (args.hook, args.emotion, args.pacing)
+    if any(judgments):
+        if not all(judgments):
+            raise ApiError(
+                ErrorCode.VALIDATION_ERROR,
+                "--hook, --emotion and --pacing must be given together "
+                "(DIR-05 requires all three creative judgments)",
+                "re-run om review watch --verify with all three judgments",
+                recovery="fix-then-retry",
+            )
+        # DIR-05: the deterministic spec checks above close the technical
+        # gate; the operator's three judgments close the creative one, bound
+        # to this exact render version.
+        store.decide(
+            review_id,
+            ReviewDecision(
+                action="accept",
+                gate_type="technical",
+                note=f"delivery spec QC by om review watch: duration={duration}s "
+                f"watched={watched}s",
+                evidence=f"ffprobe duration={duration}s version={version[:12]}",
+                decided_by="owner",
+            ),
+            candidate_version=version,
+        )
+        from lib import director_gates
+
+        record = director_gates.record_full_watch(
+            store,
+            review_id,
+            version,
+            hook=str(args.hook),
+            emotion=str(args.emotion),
+            pacing=str(args.pacing),
+        )
+        note = record["decision"]["note"]
+    else:
+        note = (
+            f"full_watch stage={args.stage} duration={duration}s "
+            f"watched={watched}s version={version[:12]}"
+        )
+        store.decide(
+            review_id,
+            ReviewDecision(
+                action="accept",
+                note=note,
+                evidence=f"full_watch sha256:{version} stage:{args.stage} at:{_now()}",
+                decided_by="owner",
+            ),
+            candidate_version=version,
+        )
     payload.update(
         {
             "verified": True,
@@ -971,6 +1025,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--stage")
     p.add_argument("--priority", type=int)
     p.add_argument("--stale", action="store_true", help="decisions made on superseded candidates")
+    p.add_argument("--creative-recheck", action="store_true",
+                   help="DIR-04: draw the seeded creative-gate human re-check queue")
     _add_json(p)
     p.set_defaults(func=_cmd_review_list)
 
@@ -990,6 +1046,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--override", action="store_true", help="human resolves an UNKNOWN")
     p.add_argument("--evidence", default="", help="required with --override")
     p.add_argument("--candidate-version")
+    p.add_argument("--gate-type", choices=["creative", "technical"],
+                   help="v2.5 DIR-02: which gate this decision closes; a "
+                        "creative approval requires a prior technical PASS")
     p.add_argument("--yes", action="store_true", help="confirm consequential actions")
     p.add_argument("--dry-run", action="store_true", help="validate without writing")
     _add_json(p)
@@ -1021,6 +1080,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="record a full_watch decision for the current media version")
     p.add_argument("--watched-seconds", type=float, default=None,
                    help="playback progress asserted by the operator")
+    p.add_argument("--hook", help="DIR-05 creative judgment: does the hook grab?")
+    p.add_argument("--emotion", help="DIR-05 creative judgment: does the emotion land?")
+    p.add_argument("--pacing", help="DIR-05 creative judgment: does the rhythm hold?")
     _add_json(p)
     p.set_defaults(func=_cmd_review_watch)
 

@@ -579,3 +579,82 @@ def test_profile_use_unknown_is_rejected(tmp_path, projects, capsys):
     assert error["code"] == ErrorCode.VALIDATION_ERROR.value
     pointer = yaml.safe_load((bindings / "model_bindings.yaml").read_text(encoding="utf-8"))
     assert pointer["active_profile"] == "green"
+
+# --- v2.5 wiring: gate_type / DIR-05 watch / creative recheck -----------------
+
+
+def test_decide_records_gate_type(projects, capsys):
+    write_manifest(projects)
+    add_item(projects)
+    assert run(projects, "review", "decide", "r1", "--action", "accept",
+               "--gate-type", "technical", "--json") == 0
+    json_out(capsys)
+    decisions = [r for r in read_log(projects) if r["event_type"] == "decision"]
+    assert decisions[0]["decision"]["gate_type"] == "technical"
+
+
+def test_decide_creative_without_technical_is_rejected(projects, capsys):
+    write_manifest(projects)
+    add_item(projects)
+    assert run(projects, "review", "decide", "r1", "--action", "accept",
+               "--gate-type", "creative", "--json") != 0
+
+
+def test_watch_with_judgments_records_creative_full_watch(projects, capsys):
+    write_manifest(projects)
+    media = projects / "drama" / "ep01" / "media" / "final.mp4"
+    media.parent.mkdir(parents=True)
+    media.write_bytes(b"cut-1")
+    version = __import__("hashlib").sha256(b"cut-1").hexdigest()
+
+    assert run(projects, "review", "watch", "ep01", "--stage", "delivery",
+               "--verify", "--hook", "opens on the unanswered call",
+               "--emotion", "guilt lands on the last line",
+               "--pacing", "two-beat hold before the cut", "--json") == 0
+    json_out(capsys)
+    decisions = [r for r in read_log(projects) if r["event_type"] == "decision"]
+    assert [d["decision"]["gate_type"] for d in decisions] == ["technical", "creative"]
+    note = json.loads(decisions[1]["decision"]["note"])
+    assert note["kind"] == "full_watch" and note["version"] == version
+    assert note["hook"] == "opens on the unanswered call"
+
+    from lib.director_gates import full_watch_ok
+
+    store = ReviewStore("drama", "ep01", projects)
+    assert full_watch_ok(store.records(), "fw:ep01:delivery", version)
+    assert not full_watch_ok(store.records(), "fw:ep01:delivery", "other-version")
+
+
+def test_watch_partial_judgments_are_rejected(projects, capsys):
+    write_manifest(projects)
+    media = projects / "drama" / "ep01" / "media" / "final.mp4"
+    media.parent.mkdir(parents=True)
+    media.write_bytes(b"cut-1")
+    assert run(projects, "review", "watch", "ep01", "--stage", "delivery",
+               "--verify", "--hook", "only one judgment", "--json") != 0
+
+
+def test_list_creative_recheck_draws_seeded_queue(projects, capsys):
+    write_manifest(projects, review_policy={
+        "mode": "sampled", "detail_ratio": 0.35, "face_sim_threshold": 0.75,
+        "sampling_salt": "ep01", "creative_ratio": 1.0,
+    })
+    add_item(projects, rid="r1", stage="script")
+    add_item(projects, rid="r2", stage="assembly")
+    assert run(projects, "review", "decide", "r1", "--action", "accept",
+               "--gate-type", "technical", "--json") == 0
+    json_out(capsys)
+    assert run(projects, "review", "decide", "r1", "--action", "accept",
+               "--gate-type", "creative", "--json") == 0
+    json_out(capsys)
+    assert run(projects, "review", "decide", "r2", "--action", "accept",
+               "--gate-type", "technical", "--json") == 0
+    json_out(capsys)
+
+    assert run(projects, "review", "list", "--creative-recheck", "--json") == 0
+    _out, out = json_out(capsys)
+    assert out["review_ids"] == ["r1"]  # r2 has no creative approval
+    audit = projects / "drama" / "ep01" / "creative_samples.jsonl"
+    assert audit.exists()
+    row = json.loads(audit.read_text(encoding="utf-8").splitlines()[0])
+    assert row["chosen"] == ["r1"] and row["ratio"] == 1.0

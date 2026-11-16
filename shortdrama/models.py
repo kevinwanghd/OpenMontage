@@ -94,6 +94,9 @@ class ReviewPolicyModel(_Request):
     detail_ratio: float = Field(default=0.35, ge=0, le=1)
     face_sim_threshold: float = Field(default=0.75, ge=0, le=1)
     sampling_salt: str = "default"
+    # v2.5 DIR-04: creative-gate human sampling runs in its own queue.
+    creative_ratio: float = Field(default=0.2, ge=0, le=1)
+    creative_seed: Optional[int] = None
 
 
 class DecideRequest(_Request):
@@ -101,6 +104,7 @@ class DecideRequest(_Request):
     chosen_candidate: Optional[str] = None
     reason_code: Optional[str] = None
     note: str = ""
+    gate_type: Optional[Literal["creative", "technical"]] = None
     prompt_patch: Optional[str] = None
     override: bool = False
     evidence: str = ""

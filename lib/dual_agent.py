@@ -160,6 +160,9 @@ class GatewayTransport:
             raise DualAgentError(f"gateway HTTP {error.code} for model {model}") from error
         except urllib.error.URLError as error:
             raise DualAgentError(f"gateway unreachable for model {model}: {error}") from error
+        # Usage is exposed for the cost ledger (DUAL-08); callers without a
+        # gateway (fakes in tests) simply have no last_usage.
+        self.last_usage = payload.get("usage") or {}
         return _message_text(payload, model)
 
 
@@ -300,6 +303,7 @@ class DualAgent:
         critic_system: Optional[str] = None,
         critic_attempts: int = 2,
         prompts: Optional[PromptTemplates] = None,
+        episode_dir: Optional[Path | str] = None,
     ) -> None:
         config = config or agent_models.load()
         problems = agent_models.validate(config)
@@ -317,11 +321,15 @@ class DualAgent:
         self.critic_system = (critic_system or templates.critic_system).replace("{role}", role)
         self.critic_retry_suffix = templates.critic_retry_suffix
         self.critic_attempts = max(1, critic_attempts)
+        # DUAL-06/08: when set, REJECTs land in the rejection library and
+        # every run appends both sides to the cost ledger.
+        self.episode_dir = Path(episode_dir) if episode_dir else None
 
     def run(self, task: str) -> DualAgentResult:
         producer_output = self.transport.complete(
             self.pair.producer.model, self.producer_system, task
         )
+        producer_tokens = self._usage_tokens()
         if not producer_output.strip():
             raise DualAgentError(f"{self.role} producer returned empty output")
 
@@ -337,13 +345,55 @@ class DualAgent:
             except DualAgentError as error:
                 last_error = error
                 continue
-            return DualAgentResult(
+            result = DualAgentResult(
                 role=self.role,
                 producer_output=producer_output,
                 verdict=verdict,
                 critic_raw=raw,
             )
+            if self.episode_dir is not None:
+                self._record_side_effects(
+                    result, producer_tokens, self._usage_tokens(), task
+                )
+            return result
         raise DualAgentError(
             f"{self.role} critic produced no valid verdict after "
             f"{self.critic_attempts} attempts: {last_error}"
+        )
+
+    def _usage_tokens(self) -> int:
+        """Total tokens of the last transport call, when the gateway reports usage."""
+        usage = getattr(self.transport, "last_usage", None) or {}
+        return int(usage.get("input_tokens") or 0) + int(usage.get("output_tokens") or 0)
+
+    def _record_side_effects(
+        self,
+        result: DualAgentResult,
+        producer_tokens: int,
+        critic_tokens: int,
+        task: str,
+    ) -> None:
+        """DUAL-06/08: persist the REJECT and the pair cost (best effort)."""
+        from lib import dual_rejections
+
+        if not result.verdict.passed:
+            dual_rejections.record_rejection(
+                self.episode_dir,
+                role=self.role,
+                reason_code="OTHER",
+                findings=[finding.as_dict() for finding in result.verdict.findings],
+                model=self.pair.producer.model,
+                prompt=task,
+            )
+        dual_rejections.record_pair_cost(
+            self.episode_dir,
+            role=self.role,
+            producer_model=self.pair.producer.model,
+            critic_model=self.pair.critic.model,
+            producer_tokens=producer_tokens,
+            critic_tokens=critic_tokens,
+            # Token counts are real when the gateway reports usage; the cash
+            # figure stays with the billing-aware caller (DUAL-08).
+            producer_cost_usd=0.0,
+            critic_cost_usd=0.0,
         )

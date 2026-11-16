@@ -582,6 +582,8 @@ class ShortdramaService:
             detail_ratio=policy.detail_ratio,
             face_sim_threshold=policy.face_sim_threshold,
             sampling_salt=policy.sampling_salt,
+            creative_ratio=policy.creative_ratio,
+            creative_seed=policy.creative_seed,
         )
 
     def list_pending(
@@ -619,6 +621,27 @@ class ShortdramaService:
                     items.append(item)
         items.sort(key=lambda i: (i.get("priority", 0), i.get("slot", ""), i["review_id"]))
         return {"items": items, "count": len(items), "policy": policy_model}
+
+    def creative_recheck(self, *, episode: Optional[str] = None) -> dict[str, Any]:
+        """DIR-04: draw (and audit) the creative-gate human re-check queue."""
+        review_ids: list[str] = []
+        for _project, ep, store in self._stores():
+            if episode and ep != episode:
+                continue
+            # Resolve the policy per episode so the manifest's creative ratio
+            # applies even without an --episode filter.
+            policy = self._to_review_policy(self._policy(ep, None, None))
+            review_ids.extend(store.creative_recheck_queue(policy, record=True))
+        return {"review_ids": review_ids, "count": len(review_ids)}
+
+    def review_history(self, review_id: str) -> list[dict[str, Any]]:
+        """The raw append-only events for one review, oldest first.
+
+        Used by the CLI dry-run to replay gate ordering (DIR-02) against the
+        real history instead of an empty store.
+        """
+        store, _eff = self._require(review_id)
+        return [rec for rec in store.records() if rec.get("review_id") == review_id]
 
     def get_review(self, review_id: str) -> dict[str, Any]:
         _store, eff = self._require(review_id)
@@ -662,6 +685,7 @@ class ShortdramaService:
             override=request.override,
             evidence=request.evidence,
             decided_by=request.decided_by,
+            gate_type=request.gate_type,
         )
         try:
             record = store.decide(review_id, decision, candidate_version=request.candidate_version)
