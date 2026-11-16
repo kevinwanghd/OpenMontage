@@ -100,7 +100,7 @@ test-shard-contracts: ensure-venv
 	$(RUN_PYTHON) -m pytest tests/contracts tests/lib -q
 
 test-shard-pipeline: ensure-venv
-	$(RUN_PYTHON) -m pytest tests/backlot tests/qa tests/eval tests/pipelines tests/styles tests/*.py -q
+	$(RUN_PYTHON) -m pytest tests/ -q --ignore=tests/tools --ignore=tests/contracts --ignore=tests/lib
 
 # ---- Testing ----
 
