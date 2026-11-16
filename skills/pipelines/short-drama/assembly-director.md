@@ -25,6 +25,7 @@ failure_modes:
   - CLIPPING
   - MOTION_UNNATURAL
   - NARRATIVE_WEAK
+  - MUSIC_UNAVAILABLE
   - OTHER
 handoff:
   next_stage: delivery
@@ -59,7 +60,9 @@ carried unchanged from the approved proposal; a runtime change needs a new
 ## Slots
 
 - `tts_voice` (required): dialogue and narration synthesis.
-- `music` (optional): background bed. Present the music plan before generating.
+- `music` (required for short-drama P0, AUD-08 revision): background bed,
+  selected only from `music_library/` (D20). Present the music plan before
+  generating.
 - `subtitle` (required): subtitle generation and burn-in input.
 - `compose` (required): the final render runtime.
 
@@ -103,6 +106,8 @@ the cut list, the loudness measurement, and subtitle samples. Stop.
 - `MOTION_UNNATURAL`: a transition exposes a bad pose. Replace the transition
   or the shot.
 - `NARRATIVE_WEAK`: music or pacing buries the reversal. Re-shape the edit.
+- `MUSIC_UNAVAILABLE`: `music_library/` has no track matching the required
+  emotional curve. Stop and ask; do not pull an unlicensed source.
 
 ## Process
 
@@ -110,7 +115,10 @@ the cut list, the loudness measurement, and subtitle samples. Stop.
 2. Synthesize dialogue through `slot:tts_voice`; review pronunciation and
    dialect.
 3. Place subtitles, verify line breaks and safe area, then measure loudness.
-4. Select or generate music and duck it under dialogue.
+4. Select music from `music_library/` (the user's local royalty-free library,
+   recorded in `music_library/licenses.json`), then duck it under dialogue. If no
+   library track fits the emotional curve, stop and ask — never substitute an
+   unlicensed or scraped track.
 5. Write `edit_decisions` and self-evaluate against the schema.
 6. Checkpoint and ask for approval.
 

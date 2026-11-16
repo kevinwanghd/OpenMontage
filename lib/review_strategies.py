@@ -25,6 +25,10 @@ send the item back to an earlier pipeline stage.
 | HOOK_WEAK         | send_back  | brief           | no   | —                                     | no      | no    |
 | NARRATIVE_WEAK    | send_back  | script          | no   | —                                     | no      | no    |
 | IDENTITY_UNKNOWN  | send_back  | character_cast  | no   | character_reference                   | no      | yes   |
+| EMOTION_FLAT      | send_back  | brief           | no   | —                                     | no      | no    |
+| PACING_DRAG       | send_back  | beat_map        | no   | —                                     | no      | no    |
+| PAYOFF_UNEARNED   | send_back  | script          | no   | —                                     | no      | no    |
+| MUSIC_UNAVAILABLE | send_back  | assembly        | no   | —                                     | no      | yes   |
 | OTHER             | regenerate | same stage      | yes  | —                                     | no      | no    |
 
 REV-06 — consecutive-rejection circuit breaker. The streak is projected from
@@ -134,6 +138,23 @@ STRATEGIES: dict[str, RegenerationStrategy] = {
            refs=("character_reference",),
            rationale="Face identity cannot be resolved automatically; lock the "
                      "character reference and have a human confirm identity."),
+        # v2.5 creative-gate codes (DIR-02/03) and music-library gate (D20).
+# These entries extend the REV-05 table above, which is the documented source
+# of truth for regeneration paths (see the module docstring). The target stage
+# is data the review layer returns to the skill/agent, not runtime
+# orchestration: no stage is executed from here.
+        _s("EMOTION_FLAT", "send_back", "brief",
+           rationale="Emotional flatness is a creative-direction problem; revise the "
+                     "director brief's emotional arc and audience trigger points."),
+        _s("PACING_DRAG", "send_back", "beat_map",
+           rationale="Dragging pacing is a story-timing problem; tighten the beat map "
+                     "and re-cut against it."),
+        _s("PAYOFF_UNEARNED", "send_back", "script",
+           rationale="The payoff lacks causal setup; revise the script so the reversal "
+                     "is earned by earlier events."),
+        _s("MUSIC_UNAVAILABLE", "send_back", "assembly", human=True,
+           rationale="No registered track in music_library/ fits the emotional curve; "
+                     "a human must add a licensed track before sound_design proceeds (D20)."),
         _s("OTHER", "regenerate", seed=True,
            rationale="Unclassified rejection — safest automatic path is a same-stage "
                      "re-roll with a new seed, then human review."),

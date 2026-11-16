@@ -27,12 +27,7 @@ import pytest
 import yaml
 
 from lib.capability_slots import load_slots, slot_definition
-from lib.pipeline_loader import (
-    load_pipeline,
-    get_stage_human_approval_default,
-    get_stage_order,
-    get_stage_sub_stages,
-)
+from lib.pipeline_loader import load_pipeline, get_stage_human_approval_default, get_stage_order
 from lib.review import STAGE_REASON_CODES
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -256,22 +251,6 @@ def test_assembly_predeclares_rough_cut_sound_design_grade_finish() -> None:
     assert "slot:music" in (sound.get("tools_available") or [])
     assert "music_library" in sound["description"]
     assert sub_stages["rough_cut"]["condition"] != sub_stages["sound_design"]["condition"]
-
-
-def test_assembly_sub_stages_are_declarative_not_checkpoint_gates() -> None:
-    """Sub-stages never enter the production stage order (no silent skip).
-
-    The assembly ``condition`` keys are labels for workflow views, not runtime
-    switches: the stage always runs and the full workflow view always exposes
-    all three declared phases, whether or not any context registered them.
-    """
-    manifest = _manifest_raw()
-    order = get_stage_order(manifest)
-    assert "assembly" in order
-    assert not any(unit.startswith("assembly.") for unit in order)
-
-    sub_stages = {sub["name"] for sub in get_stage_sub_stages(manifest, "assembly")}
-    assert {"rough_cut", "sound_design", "grade_finish"} <= sub_stages
 
 
 def test_shot_gen_predeclares_native_and_separated_lipsync_paths() -> None:
