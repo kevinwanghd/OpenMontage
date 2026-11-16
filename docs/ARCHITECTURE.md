@@ -305,6 +305,12 @@ Whether a given stage must produce one is stated by that stage's contract.
 and resume without migration; new `idea` runs produce it per the stage's
 `success_criteria`.
 
+At `shot_gen` the brief travels into every shot prompt: `visual_tone` is appended
+as `Director's tone:` and `audience_emotional_trigger` as `Audience feeling:`,
+on both the keyframe and the text-to-video branches, so all clips in an episode
+share one look and one intended feeling. When the artifact is absent the prompts
+are unchanged from earlier versions.
+
 ---
 
 ## Budget Governance

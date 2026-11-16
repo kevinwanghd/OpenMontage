@@ -64,6 +64,33 @@ bindings:
         note: "UNVERIFIED membership ToS (R25); optional fallback, not a primary chain"
         operations: [text_to_video, image_to_video, first_last_frame_to_video]
 
+  # D20 (short-drama v2.5): music comes ONLY from the local royalty-free
+  # library (music_library/, tracks registered in licenses.json). No
+  # generation-API or scraped fallback: an empty library makes the slot
+  # unusable so the brief-gate preflight stops before any video spend
+  # (MUSIC_UNAVAILABLE). Other profiles keep the common.yaml music chain.
+  #
+  # Migration note (intentional behavior change, D20/AUD-08): existing
+  # tiktok-draft projects without registered library tracks will now stop at
+  # the brief-gate preflight with SlotUnavailable. That is the declared
+  # contract, not a regression. To migrate:
+  #   1. put royalty-free audio files in <project root>/music_library/ (or set
+  #      MUSIC_LIBRARY_DIR to an existing library);
+  #   2. register each track in music_library/licenses.json with
+  #      commercial_use: true, and add the required credit in the film when
+  #      attribution_required is true;
+  #   3. re-run the stage.
+  # Registration and the preflight contract are documented in
+  # skills/pipelines/short-drama/idea-director.md (Music Availability
+  # Preflight, D20) and skills/pipelines/short-drama/assembly-director.md.
+  # risk:untested reason:"仅改动本文件的迁移说明注释，无可执行逻辑可测" owner:@kevinwanghd reviewed:2026-11-16
+  music:
+    chain:
+      - tool: music_library
+        provider: local
+        tier: local
+        operations: [music]
+
 degradation:
   # Declared first so a concrete unmet resolution outranks the generic
   # chain-degraded plan (both may match at once; equal specificity keeps the

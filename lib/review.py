@@ -60,6 +60,9 @@ REASON_CODES = {
     "PACING", "DIALOGUE_CUT", "DIALECT_OFF", "MOTION_UNNATURAL",
     "CLIPPING", "SUBTITLE_MISALIGN", "HOOK_WEAK", "NARRATIVE_WEAK",
     "IDENTITY_UNKNOWN", "OTHER",
+    # v2.5 creative-gate codes (DIR-02/03, REV-03 revision) and the
+    # music-library gate (D20): library has no fitting registered track.
+    "EMOTION_FLAT", "PACING_DRAG", "PAYOFF_UNEARNED", "MUSIC_UNAVAILABLE",
 }
 
 ACTIONS = {"accept", "reject", "pick_variant", "edit_prompt", "send_back", "skip"}
@@ -67,20 +70,27 @@ ACTIONS = {"accept", "reject", "pick_variant", "edit_prompt", "send_back", "skip
 # Per-stage applicable reason codes (REV-03): a code outside the stage's set is
 # rejected (e.g. PACING on shot_gen, SUBTITLE_MISALIGN on keyframe).
 _COMMON = {"ARTIFACT", "OTHER"}
+# v2.5: creative gates (DIR-02/03) judge hook/emotion/pacing/payoff at
+# brief / script / shot_gen / assembly / delivery, with scene_plan+keyframe
+# sampled (DIR-04). MUSIC_UNAVAILABLE (D20) is assembly-only: the local
+# music_library/ has no fitting registered track, so sound_design must stop.
 STAGE_REASON_CODES: dict[str, set[str]] = {
-    "brief": {"HOOK_WEAK", "NARRATIVE_WEAK", "OTHER"},
-    "beat_map": {"PACING", "HOOK_WEAK", "NARRATIVE_WEAK", "OTHER"},
-    "script": {"PACING", "DIALOGUE_CUT", "DIALECT_OFF", "NARRATIVE_WEAK", "HOOK_WEAK", "OTHER"},
+    "brief": {"HOOK_WEAK", "NARRATIVE_WEAK", "EMOTION_FLAT", "OTHER"},
+    "beat_map": {"PACING", "HOOK_WEAK", "NARRATIVE_WEAK", "EMOTION_FLAT", "PACING_DRAG", "OTHER"},
+    "script": {"PACING", "DIALOGUE_CUT", "DIALECT_OFF", "NARRATIVE_WEAK", "HOOK_WEAK",
+               "EMOTION_FLAT", "PACING_DRAG", "PAYOFF_UNEARNED", "OTHER"},
     "character_cast": {"FACE_MISMATCH", "WARDROBE_DRIFT", "IDENTITY_UNKNOWN", "OTHER"},
-    "scene_plan": {"FRAMING_BAD", "PACING", "NARRATIVE_WEAK", "OTHER"},
+    "scene_plan": {"FRAMING_BAD", "PACING", "NARRATIVE_WEAK", "EMOTION_FLAT", "PACING_DRAG", "OTHER"},
     "keyframe": {"FACE_MISMATCH", "WARDROBE_DRIFT", "OFF_POSE", "FRAMING_BAD",
-                 "LIGHTING_WRONG", "IDENTITY_UNKNOWN", "ARTIFACT", "OTHER"},
+                 "LIGHTING_WRONG", "IDENTITY_UNKNOWN", "ARTIFACT", "EMOTION_FLAT", "OTHER"},
     "shot_gen": {"FACE_MISMATCH", "WARDROBE_DRIFT", "OFF_POSE", "LIP_SYNC_FAIL",
                  "MOTION_WRONG", "MOTION_UNNATURAL", "ARTIFACT", "FRAMING_BAD",
-                 "LIGHTING_WRONG", "DIALOGUE_CUT", "IDENTITY_UNKNOWN", "OTHER"},
+                 "LIGHTING_WRONG", "DIALOGUE_CUT", "IDENTITY_UNKNOWN", "EMOTION_FLAT", "OTHER"},
     "assembly": {"PACING", "DIALOGUE_CUT", "LIP_SYNC_FAIL", "SUBTITLE_MISALIGN",
-                 "CLIPPING", "MOTION_UNNATURAL", "NARRATIVE_WEAK", "OTHER"},
-    "delivery": {"SUBTITLE_MISALIGN", "CLIPPING", "FRAMING_BAD", "ARTIFACT", "OTHER"},
+                 "CLIPPING", "MOTION_UNNATURAL", "NARRATIVE_WEAK", "HOOK_WEAK",
+                 "EMOTION_FLAT", "PACING_DRAG", "PAYOFF_UNEARNED", "MUSIC_UNAVAILABLE", "OTHER"},
+    "delivery": {"SUBTITLE_MISALIGN", "CLIPPING", "FRAMING_BAD", "ARTIFACT",
+                 "HOOK_WEAK", "EMOTION_FLAT", "PACING_DRAG", "PAYOFF_UNEARNED", "OTHER"},
 }
 
 
