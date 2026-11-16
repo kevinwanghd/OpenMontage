@@ -1,0 +1,48 @@
+# Short-drama v2.5 dual-agent model config (DUAL-02/09, D19 hard constraint).
+#
+# Every production role runs as producer (does the work) + critic (adversarial
+# review). D19 forbids a same-family pair: shared training blind spots turn the
+# adversarial loop into rubber-stamping. lib/agent_models.ensure_valid() refuses
+# to start (BLOCKED) on a violation instead of running a fake review.
+#
+# Note: the Agent tool's model enum only lists Claude names, so the dual agents
+# call the gateway directly (POST {ANTHROPIC_BASE_URL}/v1/messages), see the
+# v2.5 design §4.2. Cross-role dispersion is P1 (DUAL-04); P0 intentionally
+# reuses the same pair for every role.
+version: "1.0"
+roles:
+  script:
+    producer:
+      model: deepseek-v4.1-flash-1017
+      family: deepseek
+    critic:
+      model: glm-5.3
+      family: zhipu
+  visual:
+    producer:
+      model: deepseek-v4.1-flash-1017
+      family: deepseek
+    critic:
+      model: glm-5.3
+      family: zhipu
+  shot:
+    producer:
+      model: deepseek-v4.1-flash-1017
+      family: deepseek
+    critic:
+      model: glm-5.3
+      family: zhipu
+  edit_sound:
+    producer:
+      model: deepseek-v4.1-flash-1017
+      family: deepseek
+    critic:
+      model: glm-5.3
+      family: zhipu
+  director:
+    producer:
+      model: deepseek-v4.1-flash-1017
+      family: deepseek
+    critic:
+      model: glm-5.3
+      family: zhipu
