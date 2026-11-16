@@ -11,6 +11,7 @@ cost ledger that hides the critic under-reports the real cost of the gate.
 from __future__ import annotations
 
 import json
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Optional
@@ -95,26 +96,37 @@ def record_pair_cost(
     critic_model: str,
     producer_tokens: int,
     critic_tokens: int,
-    cost_usd: float,
+    producer_cost_usd: float,
+    critic_cost_usd: float,
+    pair_id: Optional[str] = None,
 ) -> Path:
-    """Append both sides of one dual-agent run (DUAL-08, NFR-01)."""
-    if producer_tokens < 0 or critic_tokens < 0 or cost_usd < 0:
+    """Append both sides of one dual-agent run (DUAL-08, NFR-01).
+
+    Each row carries that side's own cost, so summing ``cost_usd`` over rows
+    yields the true total (a single shared value would double-count when the
+    ledger is aggregated). ``pair_id`` ties the two rows together.
+    """
+    if producer_tokens < 0 or critic_tokens < 0:
+        raise ValueError("dual-agent token counts cannot be negative")
+    if producer_cost_usd < 0 or critic_cost_usd < 0:
         raise ValueError("dual-agent cost cannot be negative")
     now = datetime.now(timezone.utc).isoformat()
+    pair_id = pair_id or uuid.uuid4().hex
     path = Path(episode_dir) / COST_FILENAME
-    for actor, model, tokens in (
-        ("producer", producer_model, producer_tokens),
-        ("critic", critic_model, critic_tokens),
+    for actor, model, tokens, cost in (
+        ("producer", producer_model, producer_tokens, producer_cost_usd),
+        ("critic", critic_model, critic_tokens, critic_cost_usd),
     ):
         _append_jsonl(
             path,
             {
                 "created_at": now,
+                "pair_id": pair_id,
                 "role": role,
                 "actor": actor,
                 "model": model,
                 "tokens": int(tokens),
-                "cost_usd": float(cost_usd),
+                "cost_usd": float(cost),
             },
         )
     return path

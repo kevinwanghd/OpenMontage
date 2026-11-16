@@ -59,7 +59,7 @@ def test_regeneration_hint_reads_the_documented_strategy():
         dr.regeneration_hint("NOT_A_CODE")
 
 
-def test_pair_cost_records_both_sides(tmp_path):
+def test_pair_cost_records_each_side_without_double_counting(tmp_path):
     ep = tmp_path / "drama" / "ep04"
     dr.record_pair_cost(
         ep,
@@ -68,17 +68,20 @@ def test_pair_cost_records_both_sides(tmp_path):
         critic_model="glm-5.3",
         producer_tokens=1200,
         critic_tokens=800,
-        cost_usd=0.004,
+        producer_cost_usd=0.003,
+        critic_cost_usd=0.001,
     )
     rows = [json.loads(line) for line in (ep / dr.COST_FILENAME).read_text().splitlines()]
     assert [row["actor"] for row in rows] == ["producer", "critic"]
     assert {row["model"] for row in rows} == {"deepseek-v4.1-flash-1017", "glm-5.3"}
-    assert all(row["cost_usd"] == 0.004 for row in rows)
+    assert sum(row["cost_usd"] for row in rows) == pytest.approx(0.004)
+    assert len({row["pair_id"] for row in rows}) == 1
 
 
 def test_negative_cost_is_rejected(tmp_path):
     with pytest.raises(ValueError, match="negative"):
         dr.record_pair_cost(
             tmp_path, role="script", producer_model="a", critic_model="b",
-            producer_tokens=1, critic_tokens=1, cost_usd=-1,
+            producer_tokens=1, critic_tokens=1,
+            producer_cost_usd=-1, critic_cost_usd=0,
         )
