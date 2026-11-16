@@ -60,6 +60,11 @@ stages:
     skill: pipelines/short-drama/idea-director
     produces:
       - brief
+      # Supplementary artifact (v2.5 DIR-01): it is validated when present but
+      # is not a canonical stage artifact, so existing projects whose checkpoints
+      # predate it remain valid. No data migration is required; new runs must
+      # produce it (success_criteria below).
+      - director_brief
     tools_available: []
     checkpoint_required: true
     human_approval_default: true
@@ -71,6 +76,7 @@ stages:
     success_criteria:
       - Schema-valid brief
       - Hook, core_message, tone, style, target_platform, and target_duration_seconds are all filled
+      - Schema-valid director_brief with all seven fields (hook_strategy, emotional_arc, dramatic_question, pacing_philosophy, visual_tone, sound_emotional_curve, audience_emotional_trigger)
 
   - name: beat_map
     skill: pipelines/short-drama/beat-map-director
