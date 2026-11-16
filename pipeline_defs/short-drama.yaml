@@ -250,6 +250,10 @@ stages:
     sub_stages:
       # v2.5 §3.2: assembly splits into three declared sub-stages (MOD-06/F14,
       # never code ifs). delivery stays an independent top-level stage.
+      # These three phases always run; their `condition` keys are declarative
+      # labels for workflow views, not runtime gates, so an unregistered key
+      # cannot skip a phase. Stage outputs and checkpoints are unchanged, so
+      # existing projects need no migration.
       - name: rough_cut
         description: "Edit producer cuts approved clips to the beat map; the director reviews pacing, dead air, hook/re-hook and music points before sound design."
         condition: "assembly_rough_cut"
