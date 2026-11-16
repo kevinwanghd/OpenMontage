@@ -1,15 +1,20 @@
-"""Dual-agent runner (v2.5 D18/D19, DUAL-05).
+"""Dual-agent model calls and verdict parsing (v2.5 D18/D19, DUAL-05).
 
-Each production role runs as a producer that does the work and a critic that
-adversarially reviews it. The pair comes from ``bindings/agent_models.yaml``
-and is validated at construction time: a same-family pair raises instead of
-running a fake review.
+This module is a tool layer, not an orchestrator (AGENT_GUIDE: Python = tools
++ persistence; creative decisions, review logic and checkpoint policy stay in
+the skill/agent layer). It offers three things:
 
-Transport is injectable so tests never touch the network. The default
-``GatewayTransport`` posts to ``{ANTHROPIC_BASE_URL}/v1/messages`` in the
-Anthropic messages format (v2.5 §4.2: the Agent tool's model enum only knows
-Claude names, so dual agents call the gateway directly with an explicit
-model id).
+- ``GatewayTransport``: one model call to ``{ANTHROPIC_BASE_URL}/v1/messages``
+  (v2.5 §4.2: the Agent tool's model enum only knows Claude names, so dual
+  agents call the gateway directly with an explicit model id);
+- ``parse_verdict``: validate the critic's JSON contract;
+- ``DualAgent``: a convenience that makes the producer call and the critic
+  call in sequence. The verdict comes from the critic model; this module
+  never decides whether a stage ships (no checkpoint/human-approval logic).
+
+The instruction templates live in the skill layer
+(``skills/pipelines/short-drama/dual-agent-prompts.yaml``) and are loaded
+here, so editing review criteria does not touch Python.
 
 Critic contract (DUAL-03): the critic answers with a JSON object
 
@@ -28,7 +33,10 @@ import re
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Mapping, Optional, Protocol, Sequence
+
+import yaml
 
 from lib import agent_models
 
@@ -154,31 +162,44 @@ def _message_text(payload: Mapping[str, Any], model: str) -> str:
     return text
 
 
-PRODUCER_SYSTEM = (
-    "You are the {role} producer on an English-language vertical short drama. "
-    "Do the assigned work directly and completely: produce the deliverable, not "
-    "a plan, commentary, or apology. Keep every line speakable out loud and "
-    "under 20 words. The audience watches the first 2-3 seconds before deciding."
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_PROMPTS_PATH = (
+    _REPO_ROOT / "skills" / "pipelines" / "short-drama" / "dual-agent-prompts.yaml"
 )
+PROMPTS_PATH_ENV = "DUAL_AGENT_PROMPTS_PATH"
 
-CRITIC_SYSTEM = (
-    "You are the {role} critic: an English-native story editor reviewing the "
-    "producer's work adversarially. Your job is to find what is flat, "
-    "unearned, out of character, or unclear to a stranger - not to praise it. "
-    "Check the hook (visible conflict in the first 2-3 seconds), causality "
-    "(each turn pushed by prior events), dialogue (spoken language, actable, "
-    "under 20 words per line), and cultural fit for the target platform. "
-    "Reply with ONLY a JSON object, no prose and no code fence: "
-    '{"verdict": "PASS" or "REJECT", "findings": [{"title": "...", '
-    '"text": "...", "severity": "blocking" or "warning"}]}. '
-    "Use REJECT with at least one blocking finding when the work cannot ship; "
-    "use PASS with zero blocking findings only when it can."
-)
 
-CRITIC_RETRY_SUFFIX = (
-    "\n\nYour previous answer was not valid JSON. Reply with ONLY the JSON "
-    "object described above: no prose, no code fence."
-)
+@dataclass(frozen=True)
+class PromptTemplates:
+    """Instruction templates loaded from the skill layer."""
+
+    producer_system: str
+    critic_system: str
+    critic_retry_suffix: str = ""
+
+
+def load_prompts(path: Optional[Path | str] = None) -> PromptTemplates:
+    """Load producer/critic instructions from the skill-owned YAML file."""
+    prompt_path = Path(path) if path else Path(
+        os.environ.get(PROMPTS_PATH_ENV, DEFAULT_PROMPTS_PATH)
+    )
+    if not prompt_path.is_file():
+        raise DualAgentError(f"dual-agent prompts not found: {prompt_path}")
+    try:
+        data = yaml.safe_load(prompt_path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as error:
+        raise DualAgentError(f"dual-agent prompts are not valid YAML: {error}") from error
+    producer = str(data.get("producer_system") or "").strip()
+    critic = str(data.get("critic_system") or "").strip()
+    if not producer or not critic:
+        raise DualAgentError(
+            f"dual-agent prompts need producer_system and critic_system: {prompt_path}"
+        )
+    return PromptTemplates(
+        producer_system=producer,
+        critic_system=critic,
+        critic_retry_suffix=str(data.get("critic_retry_suffix") or ""),
+    )
 
 
 def build_critic_prompt(task: str, producer_output: str) -> str:
@@ -254,6 +275,7 @@ class DualAgent:
         producer_system: Optional[str] = None,
         critic_system: Optional[str] = None,
         critic_attempts: int = 2,
+        prompts: Optional[PromptTemplates] = None,
     ) -> None:
         config = config or agent_models.load()
         problems = agent_models.validate(config)
@@ -266,8 +288,10 @@ class DualAgent:
         self.role = role
         self.pair = config.pair(role)  # raises for unknown roles
         self.transport = transport or GatewayTransport()
-        self.producer_system = (producer_system or PRODUCER_SYSTEM).replace("{role}", role)
-        self.critic_system = (critic_system or CRITIC_SYSTEM).replace("{role}", role)
+        templates = prompts or load_prompts()
+        self.producer_system = (producer_system or templates.producer_system).replace("{role}", role)
+        self.critic_system = (critic_system or templates.critic_system).replace("{role}", role)
+        self.critic_retry_suffix = templates.critic_retry_suffix
         self.critic_attempts = max(1, critic_attempts)
 
     def run(self, task: str) -> DualAgentResult:
@@ -280,7 +304,7 @@ class DualAgent:
         critic_prompt = build_critic_prompt(task, producer_output)
         last_error: Optional[Exception] = None
         for attempt in range(self.critic_attempts):
-            suffix = CRITIC_RETRY_SUFFIX if attempt else ""
+            suffix = self.critic_retry_suffix if attempt else ""
             raw = self.transport.complete(
                 self.pair.critic.model, self.critic_system, critic_prompt + suffix
             )
@@ -299,13 +323,3 @@ class DualAgent:
             f"{self.role} critic produced no valid verdict after "
             f"{self.critic_attempts} attempts: {last_error}"
         )
-
-    @staticmethod
-    def require_pass(result: DualAgentResult, stage: str = "script") -> None:
-        """Gate helper: a REJECT blocks the stage; findings are actionable."""
-        if result.verdict.passed:
-            return
-        details = "; ".join(
-            f"{finding.title} ({finding.severity})" for finding in result.verdict.findings
-        )
-        raise DualAgentError(f"{stage} gate REJECT: {details}")

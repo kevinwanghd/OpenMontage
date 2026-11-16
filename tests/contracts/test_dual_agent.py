@@ -62,8 +62,19 @@ def test_reject_with_blocking_finding_blocks_the_gate():
     result = da.DualAgent("script", transport=transport).run("Write.")
     assert not result.verdict.passed
     assert result.verdict.blocking[0].title == "HOOK_WEAK"
-    with pytest.raises(da.DualAgentError, match="HOOK_WEAK"):
-        da.DualAgent.require_pass(result)
+
+
+def test_prompts_live_in_the_skill_layer():
+    """Review instructions belong to skills, not Python (AGENT_GUIDE:80)."""
+    prompts = da.load_prompts()
+    assert "{role}" in prompts.producer_system
+    assert "{role}" in prompts.critic_system
+    assert "JSON" in prompts.critic_system
+
+
+def test_missing_prompts_file_fails_loudly(tmp_path):
+    with pytest.raises(da.DualAgentError, match="prompts not found"):
+        da.load_prompts(tmp_path / "missing.yaml")
 
 
 def test_reject_without_blocking_finding_is_rejected_as_malformed():
