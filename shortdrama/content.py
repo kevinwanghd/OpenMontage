@@ -177,6 +177,7 @@ def _shot_prompt(
     *,
     props: Optional[dict[str, dict[str, Any]]] = None,
     scenes: Optional[dict[str, dict[str, Any]]] = None,
+    director_brief: Optional[dict[str, Any]] = None,
 ) -> str:
     parts: list[str] = []
     for key in ("single_action", "visual_evidence"):
@@ -202,6 +203,14 @@ def _shot_prompt(
     prop_descriptions = [d for d in prop_descriptions if d]
     if prop_descriptions:
         parts.append("On-screen props: " + "; ".join(prop_descriptions))
+    # DIR-06: the director's visual tone and audience feeling travel with every
+    # downstream prompt, so the shots stay one film instead of a stack of clips.
+    tone = str((director_brief or {}).get("visual_tone") or "").strip().rstrip(".")
+    feeling = str((director_brief or {}).get("audience_emotional_trigger") or "").strip().rstrip(".")
+    if tone:
+        parts.append(f"Director's tone: {tone}")
+    if feeling:
+        parts.append(f"Audience feeling: {feeling}")
     description = ". ".join(parts)
     scene = {
         "description": f"{description}." if description else "",
@@ -377,6 +386,7 @@ def _shot_items(
     keyframes_required: bool = True,
     characters: Optional[dict[str, dict[str, Any]]] = None,
     audio_path_for=None,
+    director_brief: Optional[dict[str, Any]] = None,
 ) -> list[WorkItem]:
     prop_index, scene_index = _prop_index(scene_plan), _scene_index(scene_plan)
     keyframes = _approved_keyframes(asset_manifest) if keyframes_required else {}
@@ -397,6 +407,7 @@ def _shot_items(
                         "prompt": _shot_prompt(
                             shot, characters or {},
                             props=prop_index, scenes=scene_index,
+                            director_brief=director_brief,
                         ),
                         "operation": "text_to_video",
                         "duration_seconds": duration,
@@ -415,7 +426,8 @@ def _shot_items(
             # reference_* are mutually exclusive), which is weaker than a true
             # first frame; the text must reinforce identity, location and props.
             "prompt": _shot_prompt(
-                shot, characters or {}, props=prop_index, scenes=scene_index
+                shot, characters or {}, props=prop_index, scenes=scene_index,
+                director_brief=director_brief,
             ),
             "operation": "first_frame",
             "reference_image_path": keyframe,
@@ -537,6 +549,7 @@ def build_work_items(
             keyframes_required=keyframes_required,
             characters=_character_cards(projects_dir or Path("."), project, episode, artifacts),
             audio_path_for=audio_path_for,
+            director_brief=artifacts.get("director_brief"),
         )
     if slot == "tts_voice":
         if stage == "shot_gen":

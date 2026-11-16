@@ -243,6 +243,16 @@ def test_all_sub_stages_are_fully_predeclared() -> None:
             )
 
 
+def test_assembly_predeclares_rough_cut_sound_design_grade_finish() -> None:
+    """v2.5 §3.2: the assembly sub-stages are declared, not improvised."""
+    sub_stages = _sub_stages(_manifest_raw(), "assembly")
+    assert {"rough_cut", "sound_design", "grade_finish"} <= set(sub_stages)
+    sound = sub_stages["sound_design"]
+    assert "slot:music" in (sound.get("tools_available") or [])
+    assert "music_library" in sound["description"]
+    assert sub_stages["rough_cut"]["condition"] != sub_stages["sound_design"]["condition"]
+
+
 def test_shot_gen_predeclares_native_and_separated_lipsync_paths() -> None:
     manifest = _manifest_raw()
     sub_stages = _sub_stages(manifest, "shot_gen")

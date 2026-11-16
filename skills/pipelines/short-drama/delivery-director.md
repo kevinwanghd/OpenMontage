@@ -91,7 +91,10 @@ checklist. Stop and end the turn; publishing is a user action.
 3. Verify with ffprobe: 1080x1920, expected duration, audio stream present.
 4. Measure loudness: -14 LUFS +/-1 LU, true peak <= -1 dBTP.
 5. Sample opening, middle, and closing frames for visual checks.
-6. Record rights, platform rules, and AI disclosure in `publish_log`.
+6. Record rights, platform rules, and AI disclosure in `publish_log`. For every
+   music track used, verify its `music_library/licenses.json` entry:
+   `commercial_use` must be true, and `attribution_required` tracks must carry
+   their credit in the rights evidence (D20/AUD-10).
 7. Write both artifacts, checkpoint, and ask for approval.
 
 ## Self-Evaluate
