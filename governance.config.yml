@@ -82,9 +82,12 @@ auto_merge:
   # 仓库自己的 CI；gate 等它在该 PR 提交上跑完，失败或超时都会阻止自动合并
   ci_workflows:
     - ci.yml
-  # AI 审查：glm-5.3 按目标分支的审查要点审分支 diff，有 findings 阻止自动合并
+  # AI 审查：deepseek-v4-pro 按目标分支的审查要点审分支 diff，有 findings 阻止自动合并。
+  # 原 glm-5.3 在较大 diff 上把脚本的 16384 max_tokens 烧在推理里，finish_reason=length
+  # 且正文为空，fail-closed 必挂（PR #68/#71 实测）；deepseek-v4-pro 同 diff 实测 56s 出
+  # JSON 结论且能识别负例（AgentGate 9342d61）。端点/密钥不变（Token Plan 网关）。
   ai_review:
-    model: glm-5.3
+    model: deepseek-v4-pro
     points: ops/review-points.md
     # 免审只限用户文档：docs/ 下的 Markdown 与根 README；治理/评审规则（ops/**）等不在内。
     # 用 docs/*.md 而非 docs/*，避免把 docs/ 下的脚本/配置等非文档文件也豁免。
