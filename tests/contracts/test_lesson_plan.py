@@ -79,3 +79,31 @@ def test_cli_plan_prints_applicable_lessons(lesson_file, monkeypatch, capsys):
     assert code == 0
     assert "applicable_lessons" in payload
     assert len(payload["applicable_lessons"]) == 2
+
+def test_plan_tolerates_a_hard_lesson_without_reason_code(tmp_path, monkeypatch):
+    # The two consumers of Lesson.reason_code are display dicts (plan / list).
+    # A hard lesson may omit the code, so the plan must stay JSON-serializable.
+    from lib import lessons
+
+    monkeypatch.setattr(lessons, "PRIMITIVES", {"probe": "test primitive"})
+    path = tmp_path / "no_code.yml"
+    path.write_text(
+        "version: agentgate.io/lessons/v1\n"
+        "lessons:\n"
+        "  - id: test.hard.no_code\n"
+        "    enforcement: hard\n"
+        "    status: confirmed\n"
+        "    applies_to_stages: [delivery]\n"
+        "    predicate: {kind: probe}\n"
+        "    regression_fixture: tests/fixtures/x.json\n"
+        "    trigger: t\n"
+        "    risk: r\n"
+        "    fix: f\n"
+        "    regression: g\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("LESSONS_PATH", str(path))
+    plan = Driver("demo", "ep01").plan()
+    entry = next(l for l in plan["applicable_lessons"] if l["id"] == "test.hard.no_code")
+    assert entry["reason_code"] is None
+    assert json.dumps(plan)  # must not raise on None

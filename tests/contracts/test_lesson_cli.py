@@ -94,3 +94,26 @@ def test_list_reports_invalid_repository_file(tmp_path, capsys):
     code, payload = _run(["lesson", "list", "--path", str(bad), "--json"], capsys)
     assert code == 2
     assert "version" in payload["error"]
+
+def test_list_tolerates_a_hard_lesson_without_reason_code(tmp_path, capsys, monkeypatch):
+    from lib import lessons
+
+    monkeypatch.setattr(lessons, "PRIMITIVES", {"probe": "test primitive"})
+    path = tmp_path / "no_code.yml"
+    path.write_text(
+        "version: agentgate.io/lessons/v1\n"
+        "lessons:\n"
+        "  - id: test.hard.no_code\n"
+        "    enforcement: hard\n"
+        "    status: confirmed\n"
+        "    predicate: {kind: probe}\n"
+        "    regression_fixture: tests/fixtures/x.json\n"
+        "    trigger: t\n"
+        "    risk: r\n"
+        "    fix: f\n"
+        "    regression: g\n",
+        encoding="utf-8",
+    )
+    code, payload = _run(["lesson", "list", "--path", str(path), "--json"], capsys)
+    assert code == 0
+    assert payload["lessons"][0]["reason_code"] is None

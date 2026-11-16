@@ -57,4 +57,12 @@
 - **边界**：阈值/条件必须写在 lesson 记录里（predicate 参数），Python 不得内联新策略；soft lesson 永不阻塞。
 - **回退**：删除 `_preflight_stage` 中的 `_lesson_gate` 调用即回到 P0 行为，lesson 数据不受影响。
 - 由来：PR #100 的 AI 审查按旧规则判 FAIL，用户裁决保留 driver 门禁并在此记录例外。
+## 2026-11-16 lessons schema 迁移：reason_code 变为可选（CARD-L08）
 
+- **变更**：`lib/lessons.py` 的 `HARD_REQUIRED_FIELDS` 去掉了 `reason_code`；hard 仍强制 `predicate` + `regression_fixture`。
+- **原因**：教训的身份是 predicate。`REASON_CODES` 只服务"驳回→怎么重做"的策略表，只有真会出现在审核决策里的失败类才有码。
+- **下游影响与迁移**：
+  - 读取 lesson 的代码必须把 `reason_code` 当可空字段（`Lesson.reason_code: Optional[str]`，当前实现已如此）。
+  - 任何"用 reason_code 索引 `STRATEGIES`"的代码必须先判空；`STRATEGIES` 只覆盖已注册码，缺省不应 KeyError。
+  - 已有教训记录不需要改：旧的 `reason_code` 保留生效；新 hard 教训只有在同时登记了审核码时才填。
+- **回退**：把 `reason_code` 加回 `HARD_REQUIRED_FIELDS` 即恢复旧约束；既有数据无需迁移。

@@ -297,6 +297,8 @@ class Driver:
 
     def _lesson_context(self, stage: str) -> dict[str, Any]:
         """Evidence a predicate may read. Never fetches or generates anything."""
+        from shortdrama import content
+
         context: dict[str, Any] = {}
         checkpoint = read_checkpoint(self.projects_dir, self.project, stage)
         if checkpoint:
