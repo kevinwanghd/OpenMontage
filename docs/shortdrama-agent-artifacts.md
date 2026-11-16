@@ -29,10 +29,3 @@
 | `role` / `actor` / `model` | 角色、producer|critic、具体模型 |
 | `tokens` | 该侧 token 数 |
 | `cost_usd` | **该侧成本**（不是总额；对行求和即真实总成本） |
-
-## 其他 episode 产物
-
-- `creative_samples.jsonl`（创意门抽检，DIR-04）：见
-  [shortdrama-creative-sampling.md](shortdrama-creative-sampling.md)。
-- `director_reviews.jsonl`（DirectorCritic 复核，DUAL-07）：见
-  [shortdrama-review-gates.md](shortdrama-review-gates.md) 的导演侧说明。

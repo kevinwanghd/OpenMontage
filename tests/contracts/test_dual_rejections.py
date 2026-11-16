@@ -67,6 +67,14 @@ def test_unknown_severity_is_rejected(tmp_path):
         )
 
 
+def test_unknown_role_is_rejected(tmp_path):
+    with pytest.raises(ValueError, match="role"):
+        dr.record_rejection(
+            tmp_path, role="editor", reason_code="HOOK_WEAK",
+            findings=[_finding()], model="m",
+        )
+
+
 def test_regeneration_hint_reads_the_documented_strategy():
     hint = dr.regeneration_hint("HOOK_WEAK")
     assert hint.strategy in {"regenerate", "send_back"}
@@ -94,6 +102,27 @@ def test_pair_cost_records_each_side_without_double_counting(tmp_path):
     assert len({row["pair_id"] for row in rows}) == 1
 
 
+def test_pair_cost_writes_nothing_when_a_row_cannot_serialize(tmp_path, monkeypatch):
+    ep = tmp_path / "drama" / "ep06"
+    real_dumps = json.dumps
+    calls = {"n": 0}
+
+    def flaky(obj, *args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise TypeError("cannot serialize critic row")
+        return real_dumps(obj, *args, **kwargs)
+
+    monkeypatch.setattr(dr.json, "dumps", flaky)
+    with pytest.raises(TypeError):
+        dr.record_pair_cost(
+            ep, role="script", producer_model="a", critic_model="b",
+            producer_tokens=1, critic_tokens=1,
+            producer_cost_usd=0.1, critic_cost_usd=0.1,
+        )
+    assert not (ep / dr.COST_FILENAME).exists()
+
+
 def test_negative_cost_is_rejected(tmp_path):
     with pytest.raises(ValueError, match="negative"):
         dr.record_pair_cost(
@@ -101,3 +130,14 @@ def test_negative_cost_is_rejected(tmp_path):
             producer_tokens=1, critic_tokens=1,
             producer_cost_usd=-1, critic_cost_usd=0,
         )
+
+
+def test_corrupt_line_reports_file_and_line_number(tmp_path):
+    ep = tmp_path / "drama" / "ep05"
+    ep.mkdir(parents=True)
+    (ep / dr.REJECTIONS_FILENAME).write_text('{"ok": 1}\n{broken\n', encoding="utf-8")
+    with pytest.raises(ValueError) as excinfo:
+        dr.read_rejections(ep)
+    message = str(excinfo.value)
+    assert dr.REJECTIONS_FILENAME in message
+    assert ":2:" in message
