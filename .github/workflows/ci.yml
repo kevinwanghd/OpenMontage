@@ -36,6 +36,10 @@ jobs:
           # 不用 setup-python 的 pip 缓存：依赖改由 uv 安装，pip 缓存目录不存在
           # 会让 post 步骤报错；uv 自带缓存
 
+      # 分片若漏掉某个测试目录，CI 会静默少跑用例；这里先做覆盖校验
+      - name: Check test shard coverage
+        run: python scripts/check_test_shards.py
+
       - name: Install uv
         uses: astral-sh/setup-uv@v5
 
