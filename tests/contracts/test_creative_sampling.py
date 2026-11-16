@@ -70,6 +70,9 @@ def test_policy_defaults_and_validation():
 
 
 def test_creative_queue_is_independent_of_technical_ratio():
+    import dataclasses
+
+    assert dataclasses.is_dataclass(ReviewPolicy)
     policy = ReviewPolicy(detail_ratio=0.35, creative_ratio=0.2)
     assert policy.detail_ratio != policy.creative_ratio
-    assert "sampling_salt" in ReviewPolicy.__dataclass_fields__
+    assert "sampling_salt" in {f.name for f in dataclasses.fields(ReviewPolicy)}
