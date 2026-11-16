@@ -1,3 +1,22 @@
 version: agentgate.io/lessons/v1
 scope: repository
-lessons: []
+lessons:
+  - id: shortdrama.music.audition_before_use
+    enforcement: soft
+    status: pending
+    applies_to_stages: [assembly, delivery]
+    applies_to: "短剧装配选曲（assembly/sound_design）、向 music_library/ 引入曲目、写 edit_decisions 的 audio.music"
+    trigger: "在 edit_decisions 里引用任何 music_library 曲目之前"
+    risk: >
+      按文件条目名或标题臆测曲风，没核对 genre/comment 标签与音频实际内容，就把曲目铺进成片。
+      后果是音乐与内容完全不配，交付后整段返工，且 licenses.json 的 mood 字段会给出错误信号，
+      让后续 agent 复用同一首曲子。
+    fix: >
+      1) 引入曲目时先读 ffprobe 的 genre/comment/title 标签，并做人声占比与频谱粗判；
+      2) licenses.json 的 mood 必须来自实际试听结论，不能从标题推断；
+      3) 选定曲目先在成片上抽 20-30 秒试听片段交用户确认，确认后再写进 edit_decisions；
+      4) 改曲后在 decision_log 追加同 (category, subject) 的新条目，旧曲放入 rejected_because。
+    regression: >
+      2026-11-16 the-voicemail-m1 M1 样片：把 Lajos Serly 的弦乐四重奏按 archive.org 条目名
+      "A Lifetime of Song" 误标为 piano 并铺在克制对白下，用户直接判定"音乐和内容根本就不配"，
+      成片音频重做，licenses.json 与 decision_log 均需追溯修正。

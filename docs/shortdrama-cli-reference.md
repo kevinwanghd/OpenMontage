@@ -59,6 +59,11 @@ om demo             --real --approve-live --budget-usd BUDGET [--profile PROFILE
 om checkpoint approve --project P --stage STAGE [--note TEXT] [--json]
 om ledger reconcile --project P --episode E --entry-id ID --state free|billed [--note TEXT] [--json]
 om qa               --project P [--stage S] [--episode E] [--json]
+om plan             [--project PROJECT] [--episode EPISODE] [--profile PROFILE] [--json]
+om lesson capture   --reason-code CODE --stage STAGE --evidence TEXT
+                    [--enforcement {soft,hard}] [--fix TEXT] [--regression TEXT]
+                    [--predicate-kind KIND] [--fixture PATH] [--root ROOT] [--json]
+om lesson list      [--path PATH] [--json]
 om serve            [--host HOST] [--port PORT] [--allow-remote] [--auth-token TOKEN]
                     [--projects-dir PROJECTS_DIR] [--json]
 ```
