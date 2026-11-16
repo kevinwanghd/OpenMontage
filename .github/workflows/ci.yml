@@ -50,6 +50,29 @@ jobs:
       - name: Run lint smoke checks
         run: make lint
 
+  js-typecheck:
+    name: Node typecheck (remotion-composer)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: remotion-composer/package-lock.json
+
+      # 依赖升级（含 npm overrides）必须有机器可判定的回归信号
+      - name: Install dependencies
+        working-directory: remotion-composer
+        run: npm ci --no-audit --no-fund
+
+      - name: Typecheck
+        working-directory: remotion-composer
+        run: npm run typecheck
+
   validate:
     # 按目录分片，各分片跑在独立 runner 上（片内串行），墙钟≈最慢分片。
     # 分片只决定"跑哪些用例"：仓库仍整份检出，跨目录 import 照常可用；
