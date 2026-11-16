@@ -192,3 +192,42 @@ def test_truncated_model_output_fails_closed(monkeypatch):
     transport = da.GatewayTransport(base_url="https://gw", auth_token="t")
     with pytest.raises(da.DualAgentError, match="truncated"):
         transport.complete("m", "s", "p")
+
+def test_reject_lands_in_rejection_library_and_cost_ledger(tmp_path):
+    """DUAL-06/08 wiring: a REJECT persists, and both sides are costed."""
+    transport = FakeTransport(["script text", _verdict("REJECT", [_blocking()])])
+    result = da.DualAgent("script", transport=transport, episode_dir=tmp_path).run("Write.")
+    assert not result.verdict.passed
+
+    rows = [json.loads(line) for line in (tmp_path / "rejections.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert len(rows) == 1
+    assert rows[0]["role"] == "script" and rows[0]["reason_code"] == "OTHER"
+    assert rows[0]["model"] == "deepseek-v4.1-flash-1017"
+    assert rows[0]["findings"][0]["severity"] == "blocking"
+
+    cost = [json.loads(line) for line in (tmp_path / "agent_cost.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert [row["actor"] for row in cost] == ["producer", "critic"]
+    assert len({row["pair_id"] for row in cost}) == 1
+
+
+def test_pass_records_cost_without_a_rejection(tmp_path):
+    transport = FakeTransport(["script text", _verdict()])
+    da.DualAgent("script", transport=transport, episode_dir=tmp_path).run("Write.")
+    assert not (tmp_path / "rejections.jsonl").exists()
+    cost = [json.loads(line) for line in (tmp_path / "agent_cost.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert len(cost) == 2
+
+
+def test_gateway_usage_is_captured_for_the_ledger(monkeypatch):
+    captured = {}
+    payload = {
+        "content": [{"type": "text", "text": "ok"}],
+        "stop_reason": "end_turn",
+        "usage": {"input_tokens": 10, "output_tokens": 5},
+    }
+    _patch_urlopen(monkeypatch, payload, captured)
+    transport = da.GatewayTransport(base_url="https://gw", auth_token="t")
+    assert transport.complete("m", "s", "p") == "ok"
+    assert transport.last_usage == {"input_tokens": 10, "output_tokens": 5}
+    agent = da.DualAgent("script", transport=transport)
+    assert agent._usage_tokens() == 15

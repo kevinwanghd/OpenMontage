@@ -346,6 +346,38 @@ def seed_reviewed_artifacts(projects: Path, *, shots: int = 1) -> None:
     _approved_checkpoint(projects, "script", {"script": script})
     _approved_checkpoint(projects, "scene_plan", {"scene_plan": scene_plan})
 
+    # DIR-03: seed the script_shot director gate (technical PASS then a
+    # creative approval) so paid stages pass preflight. See
+    # driver._require_director_gate.
+    from lib.review import ReviewDecision, ReviewItem, ReviewStore
+
+    store = ReviewStore("demo", "ep01", projects_dir=projects)
+    store.add_item(
+        ReviewItem(
+            review_id="gate_script",
+            project="demo",
+            episode="ep01",
+            stage="script",
+            slot="gate_script",
+            candidates=["script.json"],
+        )
+    )
+    store.decide("gate_script", ReviewDecision(action="accept", gate_type="technical"))
+    store.decide("gate_script", ReviewDecision(action="accept", gate_type="creative"))
+    # And the assembly gate, so the delivery stage passes preflight too.
+    store.add_item(
+        ReviewItem(
+            review_id="gate_assembly",
+            project="demo",
+            episode="ep01",
+            stage="assembly",
+            slot="gate_assembly",
+            candidates=["edit_decisions.json"],
+        )
+    )
+    store.decide("gate_assembly", ReviewDecision(action="accept", gate_type="technical"))
+    store.decide("gate_assembly", ReviewDecision(action="accept", gate_type="creative"))
+
 
 @pytest.fixture
 def projects(tmp_path):

@@ -315,6 +315,40 @@ class ReviewStore:
         rec["event_type"] = "item"
         return self._append(rec)
 
+    def creative_recheck_queue(
+        self,
+        policy: Optional[ReviewPolicy] = None,
+        *,
+        record: bool = False,
+    ) -> list[str]:
+        """DIR-04: the human re-check sample of effective creative approvals.
+
+        The draw is deterministic code (seeded, auditable) over every review
+        whose latest effective decision is a creative-gate approval; agent
+        self-selection is impossible by construction.
+        """
+        from lib import creative_sampling
+
+        policy = policy or self.get_policy()
+        ids = []
+        for review_id, rec in self._decision_records().items():
+            if not rec:
+                continue
+            decision = rec.get("decision") or {}
+            if (
+                decision.get("gate_type") == "creative"
+                and decision.get("action") in {"accept", "pick_variant"}
+            ):
+                ids.append(review_id)
+        if not ids:
+            return []
+        sample = creative_sampling.select(
+            ids, ratio=policy.creative_ratio, seed=policy.creative_seed
+        )
+        if record:
+            creative_sampling.write_audit(self.dir, sample)
+        return list(sample.chosen)
+
     def _effective(self) -> dict[str, dict[str, Any]]:
         """Fold the log: latest item snapshot + effective decision per review_id.
 

@@ -18,7 +18,9 @@
         "mode": { "type": "string", "enum": ["all", "sampled"], "default": "sampled" },
         "detail_ratio": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.35 },
         "face_sim_threshold": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.75 },
-        "sampling_salt": { "type": "string", "description": "Per-episode salt for deterministic sampling (REV-02)" }
+        "sampling_salt": { "type": "string", "description": "Per-episode salt for deterministic sampling (REV-02)" },
+        "creative_ratio": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.2, "description": "v2.5 DIR-04: creative-gate human sampling ratio, independent of detail_ratio" },
+        "creative_seed": { "type": ["integer", "null"], "default": null, "description": "v2.5 DIR-04: deterministic seed for the creative re-check draw; null draws one and records it" }
       },
       "additionalProperties": false
     },

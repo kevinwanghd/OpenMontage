@@ -29,3 +29,9 @@ cs.write_audit(episode_dir, draw)             # 落 creative_samples.jsonl
 
 REV-10 的每集技术抽检（`detail_ratio` 默认 0.35）保持不变；创意抽检是独立队列，
 两个比例分别可配。
+## CLI
+
+```powershell
+# 抽取并落审计本集的创意门人工复核队列（ratio 来自 manifest/策略）
+om review list --creative-recheck [--episode ep01]
+```
