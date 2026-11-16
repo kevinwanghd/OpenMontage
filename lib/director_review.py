@@ -49,6 +49,35 @@ def _load_peer_system(path: Optional[Path | str] = None) -> str:
     return system
 
 
+def record_peer_review(
+    episode_dir: Path | str,
+    review_id: str,
+    peer_summary: str,
+    question: str,
+    raw_verdict: str,
+    model: str,
+) -> CriticVerdict:
+    """Parse a critic answer and append the audit record (no model call)."""
+    if not review_id.strip():
+        raise ValueError("director peer review needs a review_id")
+    if not peer_summary.strip() or not question.strip():
+        raise ValueError("director peer review needs both the peer summary and the question")
+    verdict = parse_verdict(raw_verdict)
+    record: dict[str, Any] = {
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "review_id": review_id,
+        "model": model,
+        "peer_summary": peer_summary,
+        "question": question,
+        "verdict": verdict.as_dict(),
+    }
+    path = Path(episode_dir) / AUDIT_FILENAME
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+    return verdict
+
+
 def review_peer(
     episode_dir: Path | str,
     review_id: str,
@@ -58,7 +87,12 @@ def review_peer(
     transport: Optional[Transport] = None,
     config: Optional[agent_models.AgentModelConfig] = None,
 ) -> CriticVerdict:
-    """Let the DirectorCritic confirm/overrule a peer decision (DUAL-07)."""
+    """Let the DirectorCritic confirm/overrule a peer decision (DUAL-07).
+
+    Convenience composition: one critic-model call, then
+    :func:`record_peer_review` parses and persists it. The verdict is the
+    model's; this module makes no stage/checkpoint decision.
+    """
     if not review_id.strip():
         raise ValueError("director peer review needs a review_id")
     if not peer_summary.strip() or not question.strip():
@@ -80,21 +114,9 @@ def review_peer(
         "Reply with the JSON verdict."
     )
     raw = transport.complete(pair.critic.model, _load_peer_system(), prompt)
-    verdict = parse_verdict(raw)
-
-    record: dict[str, Any] = {
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "review_id": review_id,
-        "model": pair.critic.model,
-        "peer_summary": peer_summary,
-        "question": question,
-        "verdict": verdict.as_dict(),
-    }
-    path = Path(episode_dir) / AUDIT_FILENAME
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(record, ensure_ascii=False) + "\n")
-    return verdict
+    return record_peer_review(
+        episode_dir, review_id, peer_summary, question, raw, pair.critic.model
+    )
 
 
 def read_reviews(episode_dir: Path | str) -> list[dict[str, Any]]:

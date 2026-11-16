@@ -4,6 +4,9 @@
 # persistence; creative and review instructions belong to skills/agents).
 # lib/dual_agent.py loads this file and only sequences the two model calls;
 # it does not decide whether the work ships.
+#
+# The DUAL_AGENT_PROMPTS_PATH environment variable overrides this file's
+# location at runtime (same pattern as AGENT_MODELS_PATH).
 producer_system: |
   You are the {role} producer on an English-language vertical short drama.
   Do the assigned work directly and completely: produce the deliverable, not

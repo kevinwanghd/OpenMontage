@@ -36,13 +36,26 @@ def test_peer_review_is_recorded(tmp_path):
         transport=transport,
     )
     assert verdict.passed
-    assert transport.calls[0]["model"] == "glm-5.3"  # the director critic
+    # The model comes from the D19-validated config, not a hardcoded name.
+    expected_model = am.load().pair("director").critic.model
+    assert transport.calls[0]["model"] == expected_model
     # The instruction lives in the skill layer, not in Python source.
     assert "DirectorCritic" in transport.calls[0]["system"]
     rows = dr.read_reviews(tmp_path / "drama" / "ep01")
     assert len(rows) == 1
     assert rows[0]["review_id"] == "r1"
     assert rows[0]["verdict"]["verdict"] == "PASS"
+
+
+def test_record_peer_review_parses_without_calling_a_model(tmp_path):
+    """The parse+persist path is tool-only: no transport, no review decision."""
+    verdict = dr.record_peer_review(
+        tmp_path, "r9", "Peer accepted.", "Should it stand?",
+        _verdict(), model="any-model",
+    )
+    assert verdict.passed
+    rows = dr.read_reviews(tmp_path)
+    assert rows[0]["review_id"] == "r9"
 
 
 def test_peer_review_can_overrule(tmp_path):
