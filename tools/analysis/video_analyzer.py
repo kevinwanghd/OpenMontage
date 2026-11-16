@@ -11,6 +11,8 @@ the structured data; the agent provides the visual interpretation.
 
 from __future__ import annotations
 
+from tools.analysis.url_kind import platform_of
+
 import json
 import time
 from pathlib import Path
@@ -129,19 +131,10 @@ class VideoAnalyzer(BaseTool):
         return source.startswith(("http://", "https://", "www."))
 
     def _detect_platform(self, source: str) -> str:
-        """Detect platform from URL."""
+        """Detect platform from URL (hostname 精确匹配，见 tools/analysis/url_kind)."""
         if not self._is_url(source):
             return "local_file"
-        s = source.lower()
-        if "youtube.com/shorts" in s:
-            return "shorts"
-        if "youtube.com" in s or "youtu.be" in s:
-            return "youtube"
-        if "instagram.com" in s:
-            return "instagram"
-        if "tiktok.com" in s:
-            return "tiktok"
-        return "other_url"
+        return platform_of(source)
 
     def _is_youtube(self, platform: str) -> bool:
         return platform in ("youtube", "shorts")

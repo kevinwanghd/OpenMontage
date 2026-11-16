@@ -1,0 +1,44 @@
+"""URL 平台判定必须按 hostname 匹配，不能被子串欺骗。"""
+
+from __future__ import annotations
+
+from tools.analysis.url_kind import host_matches, host_of, platform_of
+
+
+class TestHostMatching:
+
+    def test_exact_and_subdomain(self):
+        assert host_matches("youtube.com", "youtube.com")
+        assert host_matches("www.youtube.com", "youtube.com")
+        assert host_matches("m.YouTube.com", "youtube.com")
+
+    def test_lookalike_domains_do_not_match(self):
+        assert not host_matches("youtube.com.evil.com", "youtube.com")
+        assert not host_matches("notyoutube.com", "youtube.com")
+        assert not host_matches("", "youtube.com")
+
+    def test_host_of_parses_and_normalizes(self):
+        assert host_of("https://WWW.YouTube.com/x") == "www.youtube.com"
+        assert host_of("youtube.com/x") == "youtube.com"
+        assert host_of("") == ""
+
+
+class TestPlatformOf:
+
+    def test_youtube_and_shorts(self):
+        assert platform_of("https://www.youtube.com/watch?v=1") == "youtube"
+        assert platform_of("https://youtube.com/shorts/abc") == "shorts"
+        assert platform_of("https://youtu.be/abc") == "youtube"
+
+    def test_substring_in_query_is_not_platform(self):
+        # 之前用 `"youtube.com" in url` 判断，这类 URL 会被误判
+        assert platform_of("https://evil.com/?next=youtube.com/shorts") == "other_url"
+        assert platform_of("https://youtube.com.evil.com/watch") == "other_url"
+
+    def test_other_platforms(self):
+        assert platform_of("https://www.instagram.com/p/x") == "instagram"
+        assert platform_of("https://tiktok.com/@a/video/1") == "tiktok"
+        assert platform_of("https://vimeo.com/1") == "vimeo"
+        assert platform_of("https://x.com/a/status/1") == "twitter"
+        assert platform_of("https://twitter.com/a/status/1") == "twitter"
+        assert platform_of("https://example.com/a.mp4") == "other_url"
