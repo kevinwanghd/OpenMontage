@@ -155,6 +155,10 @@ class ReviewPolicy:
     face_sim_threshold: float = 0.75
     always_detail: tuple[str, ...] = ("hook", "climax")
     sampling_salt: str = "default"
+    # v2.5 DIR-04: creative-gate human sampling runs in its own queue, with
+    # its own ratio and a recorded seed (see lib.creative_sampling).
+    creative_ratio: float = 0.2
+    creative_seed: Optional[int] = None
 
     def validate(self) -> "ReviewPolicy":
         if self.mode not in ("all", "sampled"):
@@ -166,6 +170,9 @@ class ReviewPolicy:
         if not 0.0 <= float(self.face_sim_threshold) <= 1.0:
             raise ReviewValidationError(
                 f"face_sim_threshold {self.face_sim_threshold} outside 0..1")
+        if not 0.0 <= float(self.creative_ratio) <= 1.0:
+            raise ReviewValidationError(
+                f"creative_ratio {self.creative_ratio} outside 0..1")
         return self
 
     @classmethod
