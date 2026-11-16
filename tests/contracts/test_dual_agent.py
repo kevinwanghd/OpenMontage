@@ -77,6 +77,13 @@ def test_missing_prompts_file_fails_loudly(tmp_path):
         da.load_prompts(tmp_path / "missing.yaml")
 
 
+def test_gateway_transport_refuses_plaintext_http():
+    """Credentials must not leave over an unencrypted connection (review finding 4)."""
+    transport = da.GatewayTransport(base_url="http://gateway.example", api_key="k")
+    with pytest.raises(da.DualAgentError, match="https"):
+        transport.complete("model-x", "system", "prompt")
+
+
 def test_reject_without_blocking_finding_is_rejected_as_malformed():
     warning_only = _verdict("REJECT", [{"title": "x", "text": "y", "severity": "warning"}])
     transport = FakeTransport(["script text", warning_only, warning_only])

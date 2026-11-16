@@ -31,6 +31,7 @@ import json
 import os
 import re
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -126,6 +127,13 @@ class GatewayTransport:
     def complete(self, model: str, system: str, prompt: str) -> str:
         if not self.base_url:
             raise DualAgentError("ANTHROPIC_BASE_URL is not set")
+        scheme = urllib.parse.urlsplit(self.base_url).scheme.lower()
+        if scheme != "https":
+            # Credentials must never travel over a plaintext link.
+            raise DualAgentError(
+                f"ANTHROPIC_BASE_URL must use https, got {scheme or 'no scheme'}: "
+                "refusing to send credentials over an unencrypted connection"
+            )
         body = json.dumps(
             {
                 "model": model,
