@@ -60,6 +60,7 @@ stages:
     skill: pipelines/short-drama/idea-director
     produces:
       - brief
+      - director_brief
     tools_available: []
     checkpoint_required: true
     human_approval_default: true
@@ -71,6 +72,7 @@ stages:
     success_criteria:
       - Schema-valid brief
       - Hook, core_message, tone, style, target_platform, and target_duration_seconds are all filled
+      - Schema-valid director_brief with all seven fields (hook_strategy, emotional_arc, dramatic_question, pacing_philosophy, visual_tone, sound_emotional_curve, audience_emotional_trigger)
 
   - name: beat_map
     skill: pipelines/short-drama/beat-map-director

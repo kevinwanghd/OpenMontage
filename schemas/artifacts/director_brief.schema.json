@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/director_brief",
+  "title": "Director Brief",
+  "description": "The director's creative contract for one episode, produced at the brief stage and injected into every downstream agent (v2.5 DIR-01/DIR-06). Seven fields are required: a missing field means the director's intent is unspecified, not that the field is optional.",
+  "type": "object",
+  "required": [
+    "version",
+    "hook_strategy",
+    "emotional_arc",
+    "dramatic_question",
+    "pacing_philosophy",
+    "visual_tone",
+    "sound_emotional_curve",
+    "audience_emotional_trigger"
+  ],
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "hook_strategy": {
+      "type": "string",
+      "minLength": 1,
+      "description": "How the first 2-3 seconds make a stranger stop scrolling: the visible conflict as a shot, not a title card."
+    },
+    "emotional_arc": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The feeling curve across the episode (e.g. tension -> false relief -> gut punch) and where each turn lands."
+    },
+    "dramatic_question": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The one question the audience keeps watching to answer."
+    },
+    "pacing_philosophy": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Rhythm doctrine: where to hold, where to cut, how dead air is treated."
+    },
+    "visual_tone": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Lighting, palette, framing and texture doctrine that keeps the look one film, not a stack of clips."
+    },
+    "sound_emotional_curve": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Music/sound curve (build -> swell -> resolve) the sound_design sub-stage must shape; selected from music_library/ (D20)."
+    },
+    "audience_emotional_trigger": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The specific audience feeling this episode is engineered to trigger (guilt, longing, relief...)."
+    },
+    "metadata": { "type": "object" }
+  },
+  "additionalProperties": false
+}
