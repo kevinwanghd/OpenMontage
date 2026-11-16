@@ -549,6 +549,10 @@ class Driver:
         if self._artifacts_cache is None:
             names = (
                 "brief",
+                # Supplementary artifact: loaded only when present. A missing
+                # director_brief.json is skipped by load_artifacts and is never
+                # listed in a stage's required_artifacts_in, so older projects
+                # keep resuming unchanged.
                 "director_brief",
                 "beat_map",
                 "script",
