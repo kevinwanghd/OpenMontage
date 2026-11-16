@@ -21,6 +21,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
+# PyYAML is already a declared dependency (requirements.txt: pyyaml>=6.0,
+# setup.py install_requires); this module adds no new dependency.
 import yaml
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
