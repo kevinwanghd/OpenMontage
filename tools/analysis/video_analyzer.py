@@ -11,7 +11,7 @@ the structured data; the agent provides the visual interpretation.
 
 from __future__ import annotations
 
-from tools.analysis.url_kind import platform_of
+from tools.analysis.url_kind import host_matches, host_of, platform_of
 
 import json
 import time
@@ -138,6 +138,10 @@ class VideoAnalyzer(BaseTool):
         if not self._is_url(source):
             return "local_file"
         platform = platform_of(source)
+        # 保持改造前行为：本模块只把 youtube.com/shorts 判为 shorts，
+        # youtu.be/shorts/... 一律算 youtube（video_downloader 的规则不同，不要混用）
+        if platform == "shorts" and not host_matches(host_of(source), "youtube.com"):
+            platform = "youtube"
         return platform if platform in self._KNOWN_PLATFORMS else "other_url"
 
     def _is_youtube(self, platform: str) -> bool:

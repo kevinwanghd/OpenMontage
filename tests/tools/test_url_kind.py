@@ -43,6 +43,14 @@ class TestPlatformOf:
         assert platform_of("https://twitter.com/a/status/1") == "twitter"
         assert platform_of("https://example.com/a.mp4") == "other_url"
 
+    def test_youtu_be_shorts_stays_youtube_for_analyzer(self):
+        from tools.analysis.video_analyzer import VideoAnalyzer
+
+        analyzer = VideoAnalyzer()
+        # 改造前 video_analyzer 只认 youtube.com/shorts；youtu.be/shorts 属于 youtube
+        assert analyzer._detect_platform("https://youtu.be/shorts/1") == "youtube"
+        assert analyzer._detect_platform("https://youtube.com/shorts/1") == "shorts"
+
 
 class TestAnalyzerVocabulary:
     """video_analyzer 只对外暴露原有平台集合，其余归 other_url（避免下游未处理的新值）。"""
