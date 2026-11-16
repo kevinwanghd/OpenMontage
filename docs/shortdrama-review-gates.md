@@ -48,3 +48,15 @@ om review watch ep01 --stage delivery --verify `
 ```
 
 缺任一判定即拒；版本变更后旧终审自动失效（`full_watch_ok` 判定）。
+
+## driver 预检门（迁移说明）
+
+v2.5 起 `Driver` 在每个阶段花钱前多了三道强制检查，存量项目可能被拦：
+
+| 检查 | 触发条件 | 解锁方式 |
+|---|---|---|
+| D19 启动门 | `bindings/agent_models.yaml` 任一角色 producer/critic 同家族 | 改配置使家族不同，自检 `python -c "from lib.agent_models import ensure_valid; ensure_valid()"` |
+| 导演门 | shot_gen 前无 script 门创意批准；delivery 前无 assembly 门创意批准 | `om review decide <id> --action accept --gate-type technical` 后 `--gate-type creative` |
+| 音乐许可门 | edit_decisions 引用了未登记/非商用/缺署名曲目 | 补 `music_library/licenses.json`（见 shortdrama-music-library.md） |
+
+plan() 的 `director_gates` 字段随时可查四门状态。
