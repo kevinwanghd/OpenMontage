@@ -24,11 +24,28 @@ from lib.review_strategies import STRATEGIES, RegenerationStrategy, strategy_for
 REJECTIONS_FILENAME = "rejections.jsonl"
 COST_FILENAME = "agent_cost.jsonl"
 
+# Documented enum (docs/shortdrama-agent-artifacts.md); writers must reject
+# roles outside it instead of persisting records consumers cannot map.
+ROLE_VALUES = frozenset({"script", "visual", "shot", "edit_sound", "director"})
+
 
 def _append_jsonl(path: Path, record: Mapping[str, Any]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+    return path
+
+
+def _append_jsonl_records(path: Path, records: Iterable[Mapping[str, Any]]) -> Path:
+    """Append several rows in one write so a failure cannot leave a half pair.
+
+    Every row is serialised before the file is opened; if serialisation fails
+    nothing is written, and the rows land in a single ``write`` call.
+    """
+    payload = "".join(json.dumps(record, ensure_ascii=False) + "\n" for record in records)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(payload)
     return path
 
 
@@ -45,6 +62,10 @@ def record_rejection(
     """Append one critic REJECT to the episode rejection library (LIB-06)."""
     if not role.strip():
         raise ValueError("rejection needs the role that was rejected")
+    if role not in ROLE_VALUES:
+        raise ValueError(
+            f"unknown rejection role {role!r}, expected one of {sorted(ROLE_VALUES)}"
+        )
     if reason_code not in STRATEGIES:
         raise ValueError(
             f"unknown reason_code {reason_code!r}; register it in the REV-03 "
@@ -79,10 +100,17 @@ def read_rejections(episode_dir: Path | str) -> list[dict[str, Any]]:
     if not path.is_file():
         return []
     out: list[dict[str, Any]] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
+    text = path.read_text(encoding="utf-8")
+    for lineno, line in enumerate(text.splitlines(), start=1):
         line = line.strip()
-        if line:
+        if not line:
+            continue
+        try:
             out.append(json.loads(line))
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"{path}:{lineno}: invalid JSON in rejection library: {exc}"
+            ) from exc
     return out
 
 
@@ -119,7 +147,8 @@ def record_pair_cost(
 
     Each row carries that side's own cost, so summing ``cost_usd`` over rows
     yields the true total (a single shared value would double-count when the
-    ledger is aggregated). ``pair_id`` ties the two rows together.
+    ledger is aggregated). ``pair_id`` ties the two rows together, and both
+    rows are written together so a retry cannot leave a half pair behind.
     """
     if producer_tokens < 0 or critic_tokens < 0:
         raise ValueError("dual-agent token counts cannot be negative")
@@ -128,20 +157,19 @@ def record_pair_cost(
     now = datetime.now(timezone.utc).isoformat()
     pair_id = pair_id or uuid.uuid4().hex
     path = Path(episode_dir) / COST_FILENAME
-    for actor, model, tokens, cost in (
-        ("producer", producer_model, producer_tokens, producer_cost_usd),
-        ("critic", critic_model, critic_tokens, critic_cost_usd),
-    ):
-        _append_jsonl(
-            path,
-            {
-                "created_at": now,
-                "pair_id": pair_id,
-                "role": role,
-                "actor": actor,
-                "model": model,
-                "tokens": int(tokens),
-                "cost_usd": float(cost),
-            },
+    rows = [
+        {
+            "created_at": now,
+            "pair_id": pair_id,
+            "role": role,
+            "actor": actor,
+            "model": model,
+            "tokens": int(tokens),
+            "cost_usd": float(cost),
+        }
+        for actor, model, tokens, cost in (
+            ("producer", producer_model, producer_tokens, producer_cost_usd),
+            ("critic", critic_model, critic_tokens, critic_cost_usd),
         )
-    return path
+    ]
+    return _append_jsonl_records(path, rows)
