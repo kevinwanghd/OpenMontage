@@ -39,3 +39,11 @@
 - **PRD 源头**：`E:\ClaudeCode\01_设计方案\`（短剧平台 = `short-drama-platform-v2.5-director-layer.md`，需求卡 = `short-drama-v2.5-requirement-cards.md`）。仓库内文档是派生物，不是源头。
 - **例外**：纯 bug 修复（不改流程语义）可直接修；但若修复暴露了流程缺口，缺口本身仍须回写 PRD 后再拆卡。
 - 由来：2026-11-16 讨论"教训进化机制"时用户定下——设计不落 PRD 就会随会话蒸发，下一次又从零争论。
+
+## 2026-11-16 lesson gate 与「Python 只做工具」边界的裁决
+
+- **冲突**：审查规则要求编排/审核决策留在 Agent 层；PRD v2.6 §4 要求 `_preflight_stage` 求值 hard lesson 并 BLOCKED。
+- **裁决（用户确认）**：按 PRD。hard lesson 只有在人工确认（status=confirmed/promoted）后才会进入仓库，代码侧只是执行这条已确认事实，不产生新的策略；与 D19 agent-model、continuity 前置门同构。
+- **边界**：阈值/条件必须写在 lesson 记录里（predicate 参数），Python 不得内联新策略；soft lesson 永不阻塞。
+- **回退**：删除 `_preflight_stage` 中的 `_lesson_gate` 调用即回到 P0 行为，lesson 数据不受影响。
+- 由来：PR #100 的 AI 审查按旧规则判 FAIL，用户裁决保留 driver 门禁并在此记录例外。
