@@ -22,7 +22,8 @@ concurrency:
 jobs:
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+    # 固定镜像：预装工具（如 ffmpeg）随镜像更新漂移，锁版本才能复现
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout repository
@@ -36,6 +37,9 @@ jobs:
           cache-dependency-path: |
             requirements.txt
             requirements-dev.txt
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
 
       - name: Install dependencies
         run: make install-dev
@@ -46,7 +50,7 @@ jobs:
 
   validate:
     name: Validate Python
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout repository
@@ -61,8 +65,14 @@ jobs:
             requirements.txt
             requirements-dev.txt
 
-      - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      # 镜像自带 ffmpeg；缺失才装，省掉每次 20-60s 的 apt；打印版本便于排查
+      - name: Ensure ffmpeg
+        run: |
+          command -v ffmpeg || (sudo apt-get update && sudo apt-get install -y ffmpeg)
+          ffmpeg -version | head -1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
 
       - name: Install dependencies
         run: make install-dev

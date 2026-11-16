@@ -80,8 +80,10 @@ setup: ensure-venv
 install: ensure-venv
 	$(PIP) install -r requirements.txt
 
+# 有 uv 时用它装依赖（实测比 pip 快一个数量级），没有就退回 pip；
+# 目标名与用法不变，本地和 CI 都走这里。
 install-dev: ensure-venv
-	$(PIP) install -r requirements-dev.txt
+	@if command -v uv >/dev/null 2>&1; then echo "==> Installing dev dependencies with uv"; uv pip install --python "$(RUN_PYTHON)" -r requirements-dev.txt; else $(PIP) install -r requirements-dev.txt; fi
 
 install-gpu: ensure-venv
 	$(PIP) install -r requirements-gpu.txt
