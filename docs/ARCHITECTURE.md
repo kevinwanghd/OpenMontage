@@ -399,6 +399,7 @@ All config is validated via Pydantic models in `lib/config_model.py`.
 | `MODAL_LTX2_ENDPOINT_URL` | ltx_video_modal | Self-hosted LTX-2 |
 | `VIDEO_GEN_LOCAL_ENABLED` | local video tools | Enable local GPU generation |
 | `VIDEO_GEN_LOCAL_MODEL` | wan, hunyuan, ltx, cogvideo | Select local model |
+| `DUAL_AGENT_PROMPTS_PATH` | director_review, dual_agent | Optional override for the dual-agent prompt YAML (default `skills/pipelines/short-drama/dual-agent-prompts.yaml`) |
 
 Kling Official support stays inside the existing provider and capability model.
 `kling_official_video` and `kling_official_image` handle Classic, Turbo, and Omni
