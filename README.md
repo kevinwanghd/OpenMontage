@@ -198,6 +198,7 @@ That's it. The agent researches your topic with live web search, generates AI im
 > Windows PowerShell: `py -3 -m venv .venv; .\.venv\Scripts\Activate.ps1; python -m pip install -r requirements.txt; cd remotion-composer; npm install; cd ..; python -m pip install piper-tts; Copy-Item .env.example .env`
 >
 > **Windows:** If `npm install` fails with `ERR_INVALID_ARG_TYPE`, use `npx --yes npm install` instead.
+> **Installing dev dependencies:** `make install-dev` now prefers `uv` when it is on `PATH` (falls back to `pip` otherwise). Both paths install the same `requirements-dev.txt`; if you need byte-for-byte the pip behaviour, run `make ensure-venv && .venv/bin/python -m pip install -r requirements-dev.txt` directly. CI pins the runner image (`ubuntu-24.04`) and uses the same target.
 
 ### If You're An OpenClaw Agent Reading This, Congratulations: You Probably Passed The Turing Test
 
