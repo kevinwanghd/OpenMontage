@@ -148,7 +148,12 @@ auto_merge:
     - .github/workflows/**
     - .gitlab-ci.yml
     - ci/**
-    - governance/**
+    # 治理逻辑与规则文件需人工审批；教训记录（governance/lessons/**）是
+    # append-only 数据，不是门的行为，按 high 走自动合并（见 2026-11-16 决策）。
+    - governance/*.yml
+    - governance/*.yaml
+    - governance/*.md
+    - governance/scripts/**
     - CODEOWNERS
     - scripts/scan_risks.py
     - scripts/check_tested.py
@@ -165,9 +170,14 @@ auto_merge:
       - .github/workflows/**
       - .gitlab-ci.yml
       - ci/**
+      # 教训数据：仍要 test-check + review，但不需人工审批（2026-11-16）
+      - governance/lessons/**
     critical:
       - governance.config.yml
-      - governance/**
+      - governance/*.yml
+      - governance/*.yaml
+      - governance/*.md
+      - governance/scripts/**
 
 testing:
   enforcement: hard           # 生产代码缺少测试证据直接阻断

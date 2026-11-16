@@ -39,3 +39,13 @@
 - **PRD 源头**：`E:\ClaudeCode\01_设计方案\`（短剧平台 = `short-drama-platform-v2.5-director-layer.md`，需求卡 = `short-drama-v2.5-requirement-cards.md`）。仓库内文档是派生物，不是源头。
 - **例外**：纯 bug 修复（不改流程语义）可直接修；但若修复暴露了流程缺口，缺口本身仍须回写 PRD 后再拆卡。
 - 由来：2026-11-16 讨论"教训进化机制"时用户定下——设计不落 PRD 就会随会话蒸发，下一次又从零争论。
+
+## 2026-11-16 审批颗粒度：教训数据免人工审批
+
+- **原则**：人工审批只用于"改变门的行为"的变更，不用于"记录事实"的变更。
+- `governance/lessons/**`（教训记录）从 protected 降为 **high**：仍需 test-check + AI 审查 + CI，但不再要求人工审批、可自动合并。
+- 仍然 critical（必须人工审批）：`governance.config.yml`、`governance/*.yml|*.yaml|*.md`、`governance/scripts/**`、`AGENT_GUIDE.md`、`docs/decisions.md` 等规则文件。
+- 判据：文件是否改变门的判定条件 / 权限 / 路径清单。教训是数据，改它不改变任何门。
+- 边界：教训晋升为 hard（绑定可执行检查）时，检查代码本身仍是生产代码，走正常门禁。
+- 由来：2026-11-16 用户问"如何减少我的审批"——教训会频繁增长，每条都人工审会把进化机制拖死。
+- 后续（需 AgentGate 中央支持，未落地）：`docs/decisions.md` 的**纯追加** diff 可考虑自动合并；当前无机器判据，维持 critical。
