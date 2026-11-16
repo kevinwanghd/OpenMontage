@@ -197,6 +197,7 @@ stages:
       - Schema-valid asset_manifest
       - Every shot has a generated clip linked to its keyframe
       - No silent substitution of a still image for a required motion shot
+      - Every accepted clip has a shortdrama-reviewer PASS verdict; a REJECT verdict (any blocking issue) is regenerated, never accepted
     sub_stages:
       - name: native_dialogue_lipsync
         description: "Video binding renders dialogue lipsync natively; no extra audio stages."
