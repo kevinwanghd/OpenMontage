@@ -19,6 +19,7 @@ from __future__ import annotations
 # risk:untested reason:"audio_analysis 由 reviewer agent 在真实项目上实测验证；纯本地 ffmpeg+numpy 计算，无网络调用" owner:@kevinwanghd reviewed:2026-11-15
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -60,7 +61,10 @@ def _ffprobe(path: Path) -> dict[str, Any]:
 
 def _decode_pcm(path: Path, sr: int = 16000) -> Optional[Any]:
     import numpy as np
-    tmp = Path(tempfile.mktemp(suffix=".raw"))
+    # mkstemp 直接创建并独占文件描述符；mktemp 只返回名字，存在被抢注的窗口
+    handle, tmp_name = tempfile.mkstemp(suffix=".raw")
+    os.close(handle)
+    tmp = Path(tmp_name)
     try:
         subprocess.run(
             ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
