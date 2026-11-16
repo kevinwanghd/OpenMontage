@@ -95,7 +95,10 @@ test: ensure-venv
 # CI 专用：并行跑测试。--dist loadscope 把同一测试模块固定在一个 worker，
 # 避免 tests/backlot 的模块级 fixture（固定端口 4897）被拆到多个进程撞端口。
 test-ci: ensure-venv
-	$(RUN_PYTHON) -m pytest tests/ -q --dist loadscope -n auto
+	$(RUN_PYTHON) -m pytest tests/ -q --ignore=tests/qa --dist loadscope -n auto
+	# tests/qa 是可执行脚本形态的端到端用例，收集阶段就写共享检查点，
+	# 并行 worker 会互相踩（PR#89 实测 3 个 collection error），串行单跑。
+	$(RUN_PYTHON) -m pytest tests/qa -q
 
 test-contracts: ensure-venv
 	$(RUN_PYTHON) -m pytest tests/contracts/ -v
