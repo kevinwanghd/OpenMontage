@@ -61,11 +61,13 @@ jobs:
             requirements.txt
             requirements-dev.txt
 
-      - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      # ubuntu-latest 镜像自带 ffmpeg；只在缺失时安装，省掉每次 20-60s 的 apt
+      - name: Ensure ffmpeg
+        run: command -v ffmpeg || (sudo apt-get update && sudo apt-get install -y ffmpeg)
 
       - name: Install dependencies
         run: make install-dev
 
+      # 并行跑测试（--dist loadscope 保证同模块同 worker，避免固定端口相撞）
       - name: Run test suite
-        run: make test
+        run: make test-ci

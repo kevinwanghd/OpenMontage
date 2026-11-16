@@ -92,6 +92,11 @@ install-gpu: ensure-venv
 test: ensure-venv
 	$(RUN_PYTHON) -m pytest tests/ -v
 
+# CI 专用：并行跑测试。--dist loadscope 把同一测试模块固定在一个 worker，
+# 避免 tests/backlot 的模块级 fixture（固定端口 4897）被拆到多个进程撞端口。
+test-ci: ensure-venv
+	$(RUN_PYTHON) -m pytest tests/ -q --dist loadscope -n auto
+
 test-contracts: ensure-venv
 	$(RUN_PYTHON) -m pytest tests/contracts/ -v
 
