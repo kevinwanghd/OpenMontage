@@ -20,7 +20,7 @@ def _lesson(enforcement="hard", predicate=None, stages=("assembly",), fixture="t
     )
 
 
-SUBTITLE = {"kind": "subtitle_timing_matches_speech", "tolerance_s": 0.35}
+SUBTITLE = {"kind": "subtitle_timing_matches_speech", "tolerance_s": 0.35, "gap_s": 0.15}
 
 
 def test_failing_fixture_blocks_with_lesson_and_fix():

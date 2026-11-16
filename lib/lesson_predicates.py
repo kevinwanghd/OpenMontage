@@ -74,8 +74,14 @@ def subtitle_timing_matches_speech(
     pass: a line with no detectable speech makes the whole evaluation ``None``.
     Silent hook lines declared ``silent: true`` are skipped as n/a.
     """
-    tolerance = float(predicate.get("tolerance_s", 0.35))
-    gap_limit = float(predicate.get("gap_s", 0.15))
+    # Thresholds are part of the human-confirmed lesson record, never inlined
+    # here: a missing threshold is a configuration error, not a default.
+    if "tolerance_s" not in predicate or "gap_s" not in predicate:
+        raise PredicateConfigError(
+            "subtitle_timing_matches_speech requires tolerance_s and gap_s in the lesson predicate"
+        )
+    tolerance = float(predicate["tolerance_s"])
+    gap_limit = float(predicate["gap_s"])
     subtitles = _intervals(context.get("subtitles"), "subtitles")
     speech = _intervals(context.get("speech"), "speech")
     silent_lines = {int(i) for i in context.get("silent_lines", [])}
@@ -148,8 +154,14 @@ def loudness_in_range(
     if measured is None:
         return None
     value = _number(measured, "loudness_lufs")
-    low = float(predicate.get("min_lufs", -15.0))
-    high = float(predicate.get("max_lufs", -13.0))
+    # Same rule as the subtitle predicate: the window comes from the confirmed
+    # lesson, not from a code default.
+    if "min_lufs" not in predicate or "max_lufs" not in predicate:
+        raise PredicateConfigError(
+            "loudness_in_range requires min_lufs and max_lufs in the lesson predicate"
+        )
+    low = float(predicate["min_lufs"])
+    high = float(predicate["max_lufs"])
     return low <= value <= high
 
 
