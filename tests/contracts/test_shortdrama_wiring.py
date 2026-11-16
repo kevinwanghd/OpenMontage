@@ -221,3 +221,13 @@ def test_l06_plan_lists_hard_lessons_without_evaluating(projects, bindings):
     plan = Driver("demo", "ep01", projects_dir=projects, profile="alpha").plan()
     assert "hard_lessons_pending" in plan
     assert any(row["id"] == "shortdrama.subtitle.timing_vs_speech" for row in plan["hard_lessons_pending"])
+
+
+def test_l06_corrupt_lesson_evidence_blocks_instead_of_skipping(projects, bindings):
+    artifacts = projects / "demo" / "ep01" / "artifacts"
+    artifacts.mkdir(parents=True, exist_ok=True)
+    (artifacts / "lesson_evidence_delivery.json").write_text("{not json", encoding="utf-8")
+    driver = Driver("demo", "ep01", projects_dir=projects, profile="alpha")
+    with pytest.raises(ApiError) as raised:
+        driver._preflight_stage("delivery")
+    assert "lesson evidence is unusable" in str(raised.value)

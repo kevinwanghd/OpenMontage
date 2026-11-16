@@ -314,10 +314,14 @@ class Driver:
             try:
                 evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
             except (OSError, ValueError) as error:
-                context["_evidence_error"] = f"{type(error).__name__}: {error}"
-            else:
-                if isinstance(evidence, dict):
-                    context.update(evidence)
+                # A file that exists but cannot be read is not "no evidence":
+                # silently skipping it would disarm the hard lesson.
+                raise ValueError(
+                    f"lesson evidence unreadable: {evidence_path}: "
+                    f"{type(error).__name__}: {error}"
+                ) from error
+            if isinstance(evidence, dict):
+                context.update(evidence)
         return context
 
     def _lesson_gate(self, stage: str) -> None:
@@ -351,7 +355,18 @@ class Driver:
         hard = lesson_gate.applicable_hard_lessons(stage, loaded)
         if not hard:
             return
-        context = self._lesson_context(stage)
+        try:
+            context = self._lesson_context(stage)
+        except ValueError as error:
+            raise self._pause(
+                ErrorCode.BATCH_PRECONDITION_FAILED,
+                f"lesson evidence is unusable at stage '{stage}': {error}",
+                "rewrite the stage's lesson_evidence_<stage>.json so it parses; "
+                "a corrupt evidence file must never disarm a hard lesson",
+                recovery="do-X-first",
+                side_effects="none",
+                context={"stage": stage},
+            ) from error
         skipped: list[dict[str, Any]] = []
         blocked = lesson_gate.blocked_entries(stage, hard, context, skipped)
         self._lesson_evaluated += len(hard)
