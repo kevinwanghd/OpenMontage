@@ -22,7 +22,8 @@ concurrency:
 jobs:
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+    # 固定镜像：预装工具（如 ffmpeg）随镜像更新漂移，锁版本才能复现
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout repository
@@ -46,7 +47,7 @@ jobs:
 
   validate:
     name: Validate Python
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout repository
@@ -61,11 +62,18 @@ jobs:
             requirements.txt
             requirements-dev.txt
 
-      - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      # 镜像自带 ffmpeg；缺失才装，省掉每次 20-60s 的 apt；打印版本便于排查
+      - name: Ensure ffmpeg
+        run: |
+          command -v ffmpeg || (sudo apt-get update && sudo apt-get install -y ffmpeg)
+          ffmpeg -version | head -1
+
+      # uv 解析依赖比 pip 快一个数量级（实测 pip 23s → uv 3-5s）
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
 
       - name: Install dependencies
-        run: make install-dev
+        run: uv pip install --system -r requirements-dev.txt
 
       - name: Run test suite
-        run: make test
+        run: python -m pytest tests/ -q
