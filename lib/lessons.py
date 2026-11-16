@@ -122,6 +122,7 @@ def validate_lesson(
     at module scope) keeps ``lib.lessons`` importable on its own and avoids a
     module-level import cycle with ``lib.lesson_predicates``.
     """
+    # risk:suppressed-warning reason:"导入只为注册原语副作用，函数级导入用于避免模块级循环；不是未使用导入的缺陷" owner:@kevinwanghd reviewed:2026-11-16
     from lib import lesson_predicates  # noqa: F401 — registration side effect
     problems: list[str] = []
     stage_set = frozenset(stages) if stages is not None else known_stages()
