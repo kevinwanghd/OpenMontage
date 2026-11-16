@@ -139,6 +139,10 @@ STRATEGIES: dict[str, RegenerationStrategy] = {
            rationale="Face identity cannot be resolved automatically; lock the "
                      "character reference and have a human confirm identity."),
         # v2.5 creative-gate codes (DIR-02/03) and music-library gate (D20).
+# These entries extend the REV-05 table above, which is the documented source
+# of truth for regeneration paths (see the module docstring). The target stage
+# is data the review layer returns to the skill/agent, not runtime
+# orchestration: no stage is executed from here.
         _s("EMOTION_FLAT", "send_back", "brief",
            rationale="Emotional flatness is a creative-direction problem; revise the "
                      "director brief's emotional arc and audience trigger points."),

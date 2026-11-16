@@ -69,6 +69,12 @@ bindings:
   # generation-API or scraped fallback: an empty library makes the slot
   # unusable so the brief-gate preflight stops before any video spend
   # (MUSIC_UNAVAILABLE). Other profiles keep the common.yaml music chain.
+  #
+  # Migration note (intentional behavior change, D20/AUD-08): existing
+  # tiktok-draft projects without registered library tracks will now stop at
+  # the brief-gate preflight with SlotUnavailable. That is the declared
+  # contract, not a regression: add tracks + licenses.json entries as
+  # documented in docs/shortdrama-music-library.md, then re-run the stage.
   music:
     chain:
       - tool: music_library
