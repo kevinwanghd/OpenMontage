@@ -28,10 +28,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional
+
+_lesson_logger = logging.getLogger(__name__)
 
 from lib import capability_slots as slots
 from lib import agent_models, director_gates, music_licenses
@@ -349,8 +352,14 @@ class Driver:
         if not hard:
             return
         context = self._lesson_context(stage)
-        blocked = lesson_gate.blocked_entries(stage, hard, context)
+        skipped: list[dict[str, Any]] = []
+        blocked = lesson_gate.blocked_entries(stage, hard, context, skipped)
         self._lesson_evaluated += len(hard)
+        for entry in skipped:
+            _lesson_logger.warning(
+                "lesson %s not evaluated at stage %s: %s",
+                entry["id"], stage, entry["reason"],
+            )
         if blocked:
             self._lesson_blocked += len(blocked)
             first = blocked[0]

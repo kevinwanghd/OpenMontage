@@ -79,3 +79,12 @@ def test_stage_filtering_and_plan_overview():
     assert lesson_gate.applicable_hard_lessons("delivery", [assembly]) == []
     pending = lesson_gate.pending_hard_lessons(["assembly", "delivery"], [assembly, delivery])
     assert {row["id"] for row in pending} == {"test.lesson", "test.delivery"}
+
+def test_missing_evidence_is_recorded_not_silently_skipped():
+    skipped = []
+    blocked = lesson_gate.blocked_entries(
+        "assembly", [_lesson(predicate=SUBTITLE)], {}, skipped
+    )
+    assert blocked == []
+    assert skipped and skipped[0]["id"] == "test.lesson"
+    assert skipped[0]["reason"].startswith("no evidence:")

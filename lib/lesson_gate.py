@@ -39,19 +39,34 @@ def pending_hard_lessons(stages: Iterable[str], loaded: Iterable[Lesson]) -> lis
 
 
 def blocked_entries(
-    stage: str, hard_lessons: Iterable[Lesson], context: Mapping[str, Any]
+    stage: str,
+    hard_lessons: Iterable[Lesson],
+    context: Mapping[str, Any],
+    skipped: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    """Evaluate each hard lesson once. Returns only the blocking ones."""
+    """Evaluate each hard lesson once. Returns only the blocking ones.
+
+    ``skipped`` (when passed) receives one entry per lesson that had no evidence
+    to evaluate. Skipping is never silent: the caller records the reason so an
+    unarmed lesson is visible instead of looking green.
+    """
     blocked: list[dict[str, Any]] = []
     for lesson in hard_lessons:
         predicate = lesson.predicate or {}
         try:
             verdict = lesson_predicates.evaluate(predicate, context)
-        except lesson_predicates.PredicateError:
+        except lesson_predicates.PredicateError as error:
             # The evidence this lesson measures was never collected for this
             # stage (legacy projects, stages without an evidence file). That is
-            # "not armed", not "passed": the plan lists it under
-            # hard_lessons_pending and evaluated/blocked counts expose the gap.
+            # "not armed", not "passed": keep the reason so the caller can log
+            # and count it instead of silently dropping the lesson.
+            if skipped is not None:
+                skipped.append({
+                    "id": lesson.id,
+                    "stage": stage,
+                    "kind": predicate.get("kind"),
+                    "reason": f"no evidence: {error}",
+                })
             continue
         # risk:suppressed-warning reason:"评估器内部的任何异常都必须转成 BLOCKED，不能中断整轮 preflight；这是 fail-closed 的边界" owner:@kevinwanghd reviewed:2026-11-16
         except Exception as error:  # noqa: BLE001 — any other evaluator failure is a block
