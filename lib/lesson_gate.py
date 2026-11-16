@@ -53,6 +53,7 @@ def blocked_entries(
             # "not armed", not "passed": the plan lists it under
             # hard_lessons_pending and evaluated/blocked counts expose the gap.
             continue
+        # risk:suppressed-warning reason:"评估器内部的任何异常都必须转成 BLOCKED，不能中断整轮 preflight；这是 fail-closed 的边界" owner:@kevinwanghd reviewed:2026-11-16
         except Exception as error:  # noqa: BLE001 — any other evaluator failure is a block
             blocked.append({
                 "id": lesson.id,

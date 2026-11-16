@@ -234,4 +234,5 @@ def ensure_valid(lessons: Iterable[Lesson]) -> None:
 
 # Register the v2.6 LESSON-05 primitives at import time so a lesson naming one
 # loads instead of failing as "declared but unwired" (W1-W6).
+# risk:suppressed-warning reason:"延迟导入用于注册原语，必须放在模块末尾以避开循环导入；import 顺序不是缺陷" owner:@kevinwanghd reviewed:2026-11-16
 from lib import lesson_predicates as _lesson_predicates  # noqa: E402,F401
