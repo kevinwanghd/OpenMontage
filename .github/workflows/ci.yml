@@ -45,8 +45,13 @@ jobs:
         run: make lint
 
   validate:
-    name: Validate Python
+    # 按目录分片到独立 runner：墙钟≈最慢分片，且各分片不共享进程状态
+    name: Validate Python (${{ matrix.group }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [tools, contracts, pipeline]
 
     steps:
       - name: Checkout repository
@@ -68,6 +73,5 @@ jobs:
       - name: Install dependencies
         run: make install-dev
 
-      # 并行跑测试（--dist loadscope 保证同模块同 worker，避免固定端口相撞）
       - name: Run test suite
-        run: make test-ci
+        run: make test-ci GROUP=${{ matrix.group }}
