@@ -42,3 +42,22 @@ class TestPlatformOf:
         assert platform_of("https://x.com/a/status/1") == "twitter"
         assert platform_of("https://twitter.com/a/status/1") == "twitter"
         assert platform_of("https://example.com/a.mp4") == "other_url"
+
+
+class TestAnalyzerVocabulary:
+    """video_analyzer 只对外暴露原有平台集合，其余归 other_url（避免下游未处理的新值）。"""
+
+    def test_unsupported_platform_falls_back_to_other_url(self):
+        from tools.analysis.video_analyzer import VideoAnalyzer
+
+        analyzer = VideoAnalyzer()
+        assert analyzer._detect_platform("https://vimeo.com/1") == "other_url"
+        assert analyzer._detect_platform("https://x.com/a/status/1") == "other_url"
+
+    def test_supported_platforms_unchanged(self):
+        from tools.analysis.video_analyzer import VideoAnalyzer
+
+        analyzer = VideoAnalyzer()
+        assert analyzer._detect_platform("https://youtu.be/x") == "youtube"
+        assert analyzer._detect_platform("https://youtube.com/shorts/1") == "shorts"
+        assert analyzer._detect_platform("https://www.instagram.com/p/1") == "instagram"

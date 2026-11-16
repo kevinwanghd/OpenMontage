@@ -130,11 +130,15 @@ class VideoAnalyzer(BaseTool):
         """Check if source is a URL vs local file."""
         return source.startswith(("http://", "https://", "www."))
 
+    # 本工具只区分这几种来源，其余一律归 other_url（与改造前的返回值集合一致）
+    _KNOWN_PLATFORMS = {"shorts", "youtube", "instagram", "tiktok"}
+
     def _detect_platform(self, source: str) -> str:
         """Detect platform from URL (hostname 精确匹配，见 tools/analysis/url_kind)."""
         if not self._is_url(source):
             return "local_file"
-        return platform_of(source)
+        platform = platform_of(source)
+        return platform if platform in self._KNOWN_PLATFORMS else "other_url"
 
     def _is_youtube(self, platform: str) -> bool:
         return platform in ("youtube", "shorts")
