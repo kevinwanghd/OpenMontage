@@ -63,6 +63,9 @@ REASON_CODES = {
     # v2.5 creative-gate codes (DIR-02/03, REV-03 revision) and the
     # music-library gate (D20): library has no fitting registered track.
     "EMOTION_FLAT", "PACING_DRAG", "PAYOFF_UNEARNED", "MUSIC_UNAVAILABLE",
+    # v2.6 LESSON: a track is licensed but does not fit the scene. Subjective,
+    # so it stays a soft lesson and always escalates to a human (D24).
+    "MUSIC_MISMATCH",
 }
 
 ACTIONS = {"accept", "reject", "pick_variant", "edit_prompt", "send_back", "skip"}
@@ -88,9 +91,11 @@ STAGE_REASON_CODES: dict[str, set[str]] = {
                  "LIGHTING_WRONG", "DIALOGUE_CUT", "IDENTITY_UNKNOWN", "EMOTION_FLAT", "OTHER"},
     "assembly": {"PACING", "DIALOGUE_CUT", "LIP_SYNC_FAIL", "SUBTITLE_MISALIGN",
                  "CLIPPING", "MOTION_UNNATURAL", "NARRATIVE_WEAK", "HOOK_WEAK",
-                 "EMOTION_FLAT", "PACING_DRAG", "PAYOFF_UNEARNED", "MUSIC_UNAVAILABLE", "OTHER"},
+                 "EMOTION_FLAT", "PACING_DRAG", "PAYOFF_UNEARNED", "MUSIC_UNAVAILABLE",
+                 "MUSIC_MISMATCH", "OTHER"},
     "delivery": {"SUBTITLE_MISALIGN", "CLIPPING", "FRAMING_BAD", "ARTIFACT",
-                 "HOOK_WEAK", "EMOTION_FLAT", "PACING_DRAG", "PAYOFF_UNEARNED", "OTHER"},
+                 "HOOK_WEAK", "EMOTION_FLAT", "PACING_DRAG", "PAYOFF_UNEARNED",
+                 "MUSIC_MISMATCH", "OTHER"},
 }
 
 
