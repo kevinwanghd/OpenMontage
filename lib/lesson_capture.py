@@ -57,11 +57,19 @@ def _pending_dir(root: Path) -> Path:
 
 
 def _existing_by_fingerprint(directory: Path, fp: str) -> Optional[Path]:
+    """Find the pending lesson with this fingerprint.
+
+    An unreadable or malformed file fails loudly instead of being skipped: the
+    file that cannot be parsed may be the very record this fingerprint should
+    bump, so treating it as absent would silently create a duplicate.
+    """
     for path in directory.glob("*.yml"):
         try:
             data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        except (OSError, yaml.YAMLError):
-            continue
+        except (OSError, yaml.YAMLError) as exc:
+            raise LessonCaptureError(
+                f"unreadable pending lesson {path}: {exc}"
+            ) from exc
         if isinstance(data, Mapping) and data.get("fingerprint") == fp:
             return path
     return None

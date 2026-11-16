@@ -128,3 +128,16 @@ def test_fingerprint_is_stable_across_whitespace_and_case():
 
 def test_fingerprint_separates_different_pattern_types():
     assert lesson_capture.fingerprint("PACING", "x") != lesson_capture.fingerprint("CLIPPING", "x")
+
+
+def test_corrupt_pending_file_fails_loudly_instead_of_duplicating(tmp_path):
+    # A file we cannot parse might be the record this fingerprint should bump.
+    # Skipping it would silently create a duplicate, so capture must fail loudly.
+    directory = tmp_path / ".governance" / "pending-lessons"
+    directory.mkdir(parents=True)
+    (directory / "broken.yml").write_text("fingerprint: [unclosed", encoding="utf-8")
+
+    with pytest.raises(LessonCaptureError, match="broken.yml"):
+        lesson_capture.capture_rejection(tmp_path, _reject())
+
+    assert len(_pending(tmp_path)) == 1
