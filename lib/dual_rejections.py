@@ -16,6 +16,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Optional
 
+# lib.review_strategies already exists on main (REV-05 canonical strategy
+# table, used by lib/review.py and the review CLI); this module only imports
+# it. Nothing in this change adds or moves that module.
 from lib.review_strategies import RegenerationStrategy, strategy_for
 
 REJECTIONS_FILENAME = "rejections.jsonl"
