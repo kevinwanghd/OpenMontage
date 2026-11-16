@@ -36,6 +36,13 @@ REQUIRED_FIELDS = ("id", "enforcement", "trigger", "risk", "fix", "regression", 
 # A lesson's identity is its predicate, not a review reason code. `reason_code`
 # stays optional for every lesson (v2.6 §2, 2026-11-16): codes are only
 # registered for failure classes that actually appear in review decisions.
+#
+# Migration note (why dropping the requirement is safe): nothing indexes
+# ``review_strategies.STRATEGIES`` by ``Lesson.reason_code``. The only consumers
+# of a lesson's code are display and aggregation (``om plan``, ``om lesson
+# list``), which tolerate ``None``; hard lessons resolve their behaviour through
+# ``PRIMITIVES`` by ``predicate.kind``. Lessons that already carry a code keep
+# working unchanged, so no data migration is needed.
 HARD_REQUIRED_FIELDS = ("predicate", "regression_fixture")
 
 DEFAULT_LESSONS_PATH = (

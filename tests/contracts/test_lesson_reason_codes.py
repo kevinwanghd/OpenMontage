@@ -36,3 +36,18 @@ def test_approval_basis_missing_stays_out_of_the_review_vocabulary():
     # would require inventing a meaningless regeneration strategy.
     assert "APPROVAL_BASIS_MISSING" not in REASON_CODES
     assert "APPROVAL_BASIS_MISSING" not in STRATEGIES
+
+def test_lessons_never_index_strategies_by_reason_code():
+    # Dropping the hard-lesson reason_code requirement is safe only while no
+    # consumer looks a lesson up in STRATEGIES (which would KeyError on None).
+    # Predicates resolve through PRIMITIVES by kind; the code is display-only.
+    import inspect
+
+    from lib import lessons as lessons_module
+
+    assert "STRATEGIES[" not in inspect.getsource(lessons_module)
+    lesson = lessons_module.Lesson(
+        id="x", enforcement="hard", trigger="t", risk="r", fix="f",
+        regression="g", status="confirmed", reason_code=None,
+    )
+    assert lesson.reason_code is None
