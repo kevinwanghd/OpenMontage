@@ -737,6 +737,11 @@ make test-contracts
 
 # Run all tests
 make test
+
+# 复现 CI 某个分片的失败（CI 把测试按目录分三片并行跑）
+make test-shard-tools      # tests/tools
+make test-shard-contracts  # tests/contracts + tests/lib
+make test-shard-pipeline   # tests/backlot + tests/qa + tests/eval + tests/pipelines + tests/styles
 ```
 
 ---

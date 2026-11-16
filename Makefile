@@ -89,6 +89,16 @@ install-gpu: ensure-venv
 	$(PIP) install -r requirements-gpu.txt
 	$(PIP) install diffusers transformers accelerate
 
+# CI 分片：三个自包含子集，各自单跑；不依赖其它分片先跑（仓库整份检出）。
+test-shard-tools: ensure-venv
+	$(RUN_PYTHON) -m pytest tests/tools -q
+
+test-shard-contracts: ensure-venv
+	$(RUN_PYTHON) -m pytest tests/contracts tests/lib -q
+
+test-shard-pipeline: ensure-venv
+	$(RUN_PYTHON) -m pytest tests/backlot tests/qa tests/eval tests/pipelines tests/styles tests/*.py -q
+
 # ---- Testing ----
 
 test: ensure-venv
