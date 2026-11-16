@@ -99,6 +99,7 @@ class GatewayTransport:
     def __init__(
         self,
         base_url: Optional[str] = None,
+        auth_token: Optional[str] = None,
         api_key: Optional[str] = None,
         timeout: float = DEFAULT_TIMEOUT_SECONDS,
         max_tokens: int = DEFAULT_MAX_TOKENS,
@@ -106,19 +107,25 @@ class GatewayTransport:
         self.base_url = (
             base_url or os.environ.get("ANTHROPIC_BASE_URL", "")
         ).rstrip("/")
-        self.api_key = (
-            api_key
-            or os.environ.get("ANTHROPIC_AUTH_TOKEN", "")
-            or os.environ.get("ANTHROPIC_API_KEY", "")
-        )
+        # Two credential styles: an auth token goes in Authorization: Bearer
+        # (Anthropic convention for gateway tokens), an API key goes in
+        # x-api-key. Sending a token as x-api-key makes the gateway reject or
+        # misroute it, so keep the two paths separate.
+        self.auth_token = auth_token or os.environ.get("ANTHROPIC_AUTH_TOKEN", "")
+        self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
         self.timeout = timeout
         self.max_tokens = max_tokens
+
+    def _auth_headers(self) -> dict[str, str]:
+        if self.auth_token:
+            return {"Authorization": f"Bearer {self.auth_token}"}
+        if self.api_key:
+            return {"x-api-key": self.api_key}
+        raise DualAgentError("ANTHROPIC_AUTH_TOKEN/ANTHROPIC_API_KEY is not set")
 
     def complete(self, model: str, system: str, prompt: str) -> str:
         if not self.base_url:
             raise DualAgentError("ANTHROPIC_BASE_URL is not set")
-        if not self.api_key:
-            raise DualAgentError("ANTHROPIC_AUTH_TOKEN/ANTHROPIC_API_KEY is not set")
         body = json.dumps(
             {
                 "model": model,
@@ -135,7 +142,7 @@ class GatewayTransport:
             headers={
                 "Content-Type": "application/json",
                 "anthropic-version": ANTHROPIC_VERSION,
-                "x-api-key": self.api_key,
+                **self._auth_headers(),
             },
         )
         try:
@@ -149,6 +156,15 @@ class GatewayTransport:
 
 
 def _message_text(payload: Mapping[str, Any], model: str) -> str:
+    stop_reason = str(payload.get("stop_reason") or "")
+    if stop_reason in {"max_tokens", "length"}:
+        # A truncated producer/critic answer must not be treated as complete:
+        # the critic would review half a deliverable and the producer would
+        # ship a cut-off script.
+        raise DualAgentError(
+            f"model {model} output was truncated (stop_reason={stop_reason}); "
+            "raise max_tokens or shorten the task"
+        )
     blocks = payload.get("content")
     if not isinstance(blocks, list):
         raise DualAgentError(f"gateway response for {model} has no content blocks")
