@@ -250,6 +250,9 @@ stages:
     sub_stages:
       # v2.5 §3.2: assembly splits into three declared sub-stages (MOD-06/F14,
       # never code ifs). delivery stays an independent top-level stage.
+      # sub_stages is the existing manifest contract (shot_gen and delivery
+      # already declare them), so this adds no schema change and no migration:
+      # engines that read the manifest pick the branches up by name.
       - name: rough_cut
         description: "Edit producer cuts approved clips to the beat map; the director reviews pacing, dead air, hook/re-hook and music points before sound design."
         condition: "assembly_rough_cut"
