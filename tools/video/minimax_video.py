@@ -7,6 +7,7 @@ support the global and mainland China hosts through ``MINIMAX_REGION``.
 
 from __future__ import annotations
 
+from tools.analysis.url_kind import host_matches, host_of
 import os
 import time
 from pathlib import Path
@@ -261,7 +262,7 @@ class MiniMaxVideo(BaseTool):
         return REGION_BASE_URLS.get(region, REGION_BASE_URLS[DEFAULT_REGION])
 
     def _uses_cn_api(self, base_url: str) -> bool:
-        return self._region() == "cn" or "api.minimaxi.com" in base_url
+        return self._region() == "cn" or host_matches(host_of(base_url), "api.minimaxi.com")
 
     def get_status(self) -> ToolStatus:
         if self._get_api_key():

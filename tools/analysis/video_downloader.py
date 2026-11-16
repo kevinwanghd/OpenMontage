@@ -7,6 +7,7 @@ at analysis quality (720p), not production quality.
 
 from __future__ import annotations
 
+from tools.analysis.url_kind import platform_of
 import json
 import re
 import time
@@ -134,21 +135,8 @@ class VideoDownloader(BaseTool):
     }
 
     def _detect_platform(self, url: str) -> str:
-        """Detect platform from URL."""
-        url_lower = url.lower()
-        if "youtube.com/shorts" in url_lower or "youtu.be" in url_lower and "/shorts" in url_lower:
-            return "shorts"
-        if "youtube.com" in url_lower or "youtu.be" in url_lower:
-            return "youtube"
-        if "instagram.com" in url_lower:
-            return "instagram"
-        if "tiktok.com" in url_lower:
-            return "tiktok"
-        if "vimeo.com" in url_lower:
-            return "vimeo"
-        if "twitter.com" in url_lower or "x.com" in url_lower:
-            return "twitter"
-        return "other_url"
+        """Detect platform from URL (hostname 精确匹配，见 tools/analysis/url_kind)."""
+        return platform_of(url)
 
     def _extract_metadata(self, url: str) -> dict:
         """Extract metadata without downloading."""
