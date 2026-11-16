@@ -4,8 +4,10 @@ stage: idea
 inputs: []
 outputs:
   - brief
+  - director_brief
 schemas:
   brief: schemas/artifacts/brief.schema.json
+  director_brief: schemas/artifacts/director_brief.schema.json
 slots: []
 gates:
   checkpoint_required: true
@@ -58,6 +60,14 @@ Produce a schema-valid `brief` at
 - `target_audience`, `target_platform` (TikTok), `target_duration_seconds`
   (60-120 for P0), `tone`, `style`.
 
+Also write the `director_brief` at
+`projects/<project-id>/artifacts/director_brief.json` (v2.5 DIR-01). It is the
+director's creative contract and carries exactly seven fields:
+`hook_strategy`, `emotional_arc`, `dramatic_question`, `pacing_philosophy`,
+`visual_tone`, `sound_emotional_curve`, `audience_emotional_trigger`. Every
+downstream agent reads it (DIR-06); a missing field is an unspecified director
+intent, not an optional field, so do not leave any blank.
+
 ## Slots
 
 This stage resolves no capability slot. It is pure planning: zero external API
@@ -106,10 +116,11 @@ stop and end the turn. Do not continue into `beat_map` in the same response.
 1. Interrogate the premise: who wants what, who blocks it, what changes.
 2. Write three hook candidates and pick the most physical one.
 3. Fix the language/dialect now; it cannot drift after TTS is chosen.
-4. Fill the brief artifact and self-evaluate against the schema.
+4. Fill the brief artifact and the seven-field `director_brief`, then
+   self-evaluate both against their schemas.
 5. Run the music availability preflight (D20); if the library cannot cover the
    emotional arc, mark the episode BLOCKED and say so in the checkpoint.
-6. Write the `idea`-stage checkpoint with the artifact and present it.
+6. Write the `idea`-stage checkpoint with both artifacts and present it.
 
 ## Self-Evaluate
 
