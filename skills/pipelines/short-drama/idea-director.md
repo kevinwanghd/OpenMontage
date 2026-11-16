@@ -87,6 +87,16 @@ runtime is installed, say so explicitly and record why the other was rejected.
 Never silently default to Remotion; the runtime is carried unchanged through
 assembly and delivery.
 
+## Music Availability Preflight (D20)
+
+The brief is the last zero-cost moment to catch a missing music library. Check
+`music_library/` (via the `music_library` tool) for at least one registered
+track that fits this episode's emotional arc (`music_library/licenses.json`).
+If the library is empty or nothing fits, tell the user now and mark the episode
+BLOCKED before any downstream spend: short-drama P0 requires a music bed
+(AUD-08 revision) and sound_design may only use registered library tracks.
+Never defer this to assembly, where the video budget is already spent.
+
 ## Gates
 
 Checkpoint required, `human_approval_default: true` (review point 1). Present
@@ -108,10 +118,13 @@ stop and end the turn. Do not continue into `beat_map` in the same response.
 3. Fix the language/dialect now; it cannot drift after TTS is chosen.
 4. Fill the brief artifact and the seven-field `director_brief`, then
    self-evaluate both against their schemas.
-5. Write the `idea`-stage checkpoint with both artifacts and present it.
+5. Run the music availability preflight (D20); if the library cannot cover the
+   emotional arc, mark the episode BLOCKED and say so in the checkpoint.
+6. Write the `idea`-stage checkpoint with both artifacts and present it.
 
 ## Self-Evaluate
 
 Before checkpointing, answer: can a stranger name the conflict from the hook
 alone? Is the audience concrete? Is the duration compatible with the 120-second
-retention shape? If any answer is no, revise before asking for approval.
+retention shape? Does `music_library/` hold a registered track that fits this
+episode's emotional arc? If any answer is no, revise before asking for approval.
