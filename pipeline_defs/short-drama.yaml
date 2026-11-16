@@ -60,6 +60,11 @@ stages:
     skill: pipelines/short-drama/idea-director
     produces:
       - brief
+      # Supplementary artifact (v2.5 DIR-01): it is validated when present but
+      # is not a canonical stage artifact, so existing projects whose checkpoints
+      # predate it remain valid. No data migration is required; new runs must
+      # produce it (success_criteria below).
+      - director_brief
     tools_available: []
     checkpoint_required: true
     human_approval_default: true
@@ -71,6 +76,7 @@ stages:
     success_criteria:
       - Schema-valid brief
       - Hook, core_message, tone, style, target_platform, and target_duration_seconds are all filled
+      - Schema-valid director_brief with all seven fields (hook_strategy, emotional_arc, dramatic_question, pacing_philosophy, visual_tone, sound_emotional_curve, audience_emotional_trigger)
 
   - name: beat_map
     skill: pipelines/short-drama/beat-map-director
@@ -197,6 +203,7 @@ stages:
       - Schema-valid asset_manifest
       - Every shot has a generated clip linked to its keyframe
       - No silent substitution of a still image for a required motion shot
+      - Every accepted clip has a shortdrama-reviewer PASS verdict; a REJECT verdict (any blocking issue) is regenerated, never accepted
     sub_stages:
       - name: native_dialogue_lipsync
         description: "Video binding renders dialogue lipsync natively; no extra audio stages."
@@ -247,6 +254,41 @@ stages:
       - Schema-valid edit_decisions
       - Loudness measurement passes
       - Every cut references an approved clip from asset_manifest
+    sub_stages:
+      # v2.5 §3.2: assembly splits into three declared sub-stages (MOD-06/F14,
+      # never code ifs). delivery stays an independent top-level stage.
+      # sub_stages is the existing manifest contract (shot_gen and delivery
+      # already declare them), so this adds no schema change and no migration:
+      # engines that read the manifest pick the branches up by name.
+      - name: rough_cut
+        description: "Edit producer cuts approved clips to the beat map; the director reviews pacing, dead air, hook/re-hook and music points before sound design."
+        condition: "assembly_rough_cut"
+        human_approval_default: true
+        tools_available:
+          - slot:compose
+        review_focus:
+          - Cuts land on the beat; every 1-3 seconds a change or a deliberate hold
+          - Dead air is removed and the hook/re-hook survive the cut
+      - name: sound_design
+        description: "Music emotional curve (build -> swell -> resolve) selected only from music_library/, foley N/A in P0, dialogue-first mix, loudness to target."
+        condition: "assembly_sound_design"
+        human_approval_default: true
+        tools_available:
+          - slot:music
+          - slot:tts_voice
+        review_focus:
+          - Music comes from registered library tracks; MUSIC_UNAVAILABLE stops before any substitution
+          - Loudness measures -14 LUFS (+/-1 LU) with true peak <= -1 dBTP
+      - name: grade_finish
+        description: "Color-grade consistency to mask cross-shot color temperature and material drift, plus subtitle visuals (keyword emphasis/motion)."
+        condition: "assembly_grade_finish"
+        human_approval_default: true
+        tools_available:
+          - slot:compose
+          - slot:subtitle
+        review_focus:
+          - Cross-shot color temperature and texture read as one film
+          - Subtitle emphasis stays inside the safe area
 
   - name: delivery
     skill: pipelines/short-drama/delivery-director

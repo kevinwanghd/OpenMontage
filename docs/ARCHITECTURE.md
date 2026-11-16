@@ -285,6 +285,32 @@ Checkpoints persist pipeline state as JSON in the project's `pipeline/` director
 | `review` | (any) | Reviewer feedback and approval records |
 | `cost_log` | (any) | Budget tracking entries |
 
+### Supplementary Artifacts
+
+Some artifacts travel alongside a stage without defining it. They are listed in
+`SUPPLEMENTARY_ARTIFACTS`; when present they are schema-validated like canonical
+artifacts, but their absence alone does not fail checkpoint validation. That
+makes them additive: introducing a new supplementary artifact never invalidates
+checkpoints written by earlier versions, and no data migration is required.
+Whether a given stage must produce one is stated by that stage's contract.
+
+| Artifact | Carried by | Contains |
+|----------|-----------|----------|
+| `source_media_review` | before the first planning stage, when the project supplies source footage | Assessment of the user's media |
+| `final_review` | compose | Pre-delivery review of the rendered output |
+| `video_analysis_brief` | any stage | Grounding notes distilled from a reference video |
+| `director_brief` | idea | v2.5 DIR-01 creative contract: hook strategy, emotional arc, dramatic question, pacing philosophy, visual tone, sound emotional curve, audience emotional trigger |
+
+`director_brief` is additive: projects whose checkpoints predate it remain valid
+and resume without migration; new `idea` runs produce it per the stage's
+`success_criteria`.
+
+At `shot_gen` the brief travels into every shot prompt: `visual_tone` is appended
+as `Director's tone:` and `audience_emotional_trigger` as `Audience feeling:`,
+on both the keyframe and the text-to-video branches, so all clips in an episode
+share one look and one intended feeling. When the artifact is absent the prompts
+are unchanged from earlier versions.
+
 ---
 
 ## Budget Governance

@@ -144,4 +144,30 @@ def test_append_only_accumulates(store):
 def test_reason_codes_and_actions_constants():
     assert "MOTION_UNNATURAL" in REASON_CODES and "MOTION_NATURAL" not in REASON_CODES
     assert "NARRATIVE_WEAK" in REASON_CODES and "IDENTITY_UNKNOWN" in REASON_CODES
+
+
+def test_v25_creative_and_music_codes_registered():
+    """v2.5 DIR-02/03 creative gates + D20 music gate must be canonical codes."""
+    for code in ("EMOTION_FLAT", "PACING_DRAG", "PAYOFF_UNEARNED", "MUSIC_UNAVAILABLE"):
+        assert code in REASON_CODES
+
+
+def test_music_unavailable_is_assembly_only(store):
+    """D20: the empty-library stop belongs to sound_design, not shot_gen."""
+    _item(store, stage="assembly")
+    store.decide("r1", ReviewDecision(action="reject", reason_code="MUSIC_UNAVAILABLE"))
+    assert store.stats()["reason_code_distribution"]["MUSIC_UNAVAILABLE"] == 1
+    _item(store, rid="r2", stage="shot_gen")
+    with pytest.raises(ReviewValidationError):
+        store.decide("r2", ReviewDecision(action="reject", reason_code="MUSIC_UNAVAILABLE"))
+
+
+def test_creative_codes_applicable_at_creative_gates(store):
+    """DIR-03: hook/emotion/pacing/payoff are judgeable at the four creative gates."""
+    for stage, code in (("brief", "EMOTION_FLAT"), ("script", "PAYOFF_UNEARNED"),
+                        ("assembly", "PACING_DRAG"), ("delivery", "HOOK_WEAK")):
+        rid = f"r_{stage}"
+        _item(store, rid=rid, stage=stage)
+        store.decide(rid, ReviewDecision(action="reject", reason_code=code))
+        assert store.stats()["reason_code_distribution"][code] == 1
     assert ACTIONS == {"accept", "reject", "pick_variant", "edit_prompt", "send_back", "skip"}

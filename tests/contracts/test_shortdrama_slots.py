@@ -465,7 +465,7 @@ def test_doctor_verified_dashscope_video_warns_only_about_upscale(monkeypatch):
             "bria_fal_image": _available(["image_edit"]),
             "doubao_tts": _available(["tts"]),
             "kling_lip_sync": _available(["lipsync"]),
-            "music_gen": _available(["music"]),
+            "music_library": _available(["music"]),
             "video_compose": _available(["compose"]),
             "subtitle_gen": _available(["subtitle"]),
             "upscale": _available(["upscale"]),
@@ -477,6 +477,28 @@ def test_doctor_verified_dashscope_video_warns_only_about_upscale(monkeypatch):
     assert not any(r["code"] == "CAPABILITY_UNVERIFIED" for r in video_reasons)
     assert any(r["code"] == "DRAFT_UPSCALE_DECLARED" for r in video_reasons)
     assert not any("VERIFIED" == str(r.get("message", "")) for r in report["reasons"])
+
+
+def test_tiktok_draft_music_resolves_only_to_local_library(monkeypatch):
+    """D20: the short-drama music slot binds the local royalty-free library."""
+    _patch_real_profile_states(
+        monkeypatch,
+        {"music_library": _available(["music"])},
+    )
+    assert cs.resolve("music", "tiktok-draft") == "music_library"
+
+
+def test_tiktok_draft_music_empty_library_never_falls_back_to_paid(monkeypatch):
+    """D20: an empty library makes the slot unusable (stop and ask), not music_gen."""
+    _patch_real_profile_states(
+        monkeypatch,
+        {
+            "music_library": _unavailable("Drop royalty-free tracks into music_library/."),
+            "music_gen": _available(["music"]),
+        },
+    )
+    with pytest.raises(cs.SlotUnavailable):
+        cs.resolve("music", "tiktok-draft")
 
 
 def test_holopix_is_registered_but_credits_exhausted():

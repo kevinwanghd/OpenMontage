@@ -28,6 +28,15 @@ om doctor  →  om demo --mock  →  om review list  →  om review decide  → 
 | 网络 | 不需要 |
 | API Key | 不需要 |
 
+> **音乐库前置条件（tiktok-draft，D20/AUD-10）**：`tiktok-draft` profile 的 music 槽只绑定本地
+> `music_library/`，不走生成 API、也没有付费回退。进入真实生成（`om demo --real`）前，请在
+> 项目根准备 `music_library/`，放入免版税曲目（可用 `MUSIC_LIBRARY_DIR` 指向其它目录），并在
+> `music_library/licenses.json` 登记：`commercial_use` 必须为 `true` 才能进成片，
+> `attribution_required: true` 的曲目需在成片署名。空曲库会让槽不可用，brief 门 preflight
+> 直接 BLOCKED，在花视频预算之前停下。登记字段与机检规则见
+> [shortdrama-music-library.md](shortdrama-music-library.md)。本指南前面的 mock hello-world
+> 不生成画面、不需要曲库。
+
 ---
 
 ## 0. 安装（Windows PowerShell）
@@ -309,6 +318,26 @@ om --projects-dir .\my-projects review list --episode ep01 --json
 
 默认根目录由 `OPENMONTAGE_PROJECTS_DIR` 决定，未设置时是仓库根的 `projects/`。
 
+### 双 agent 模型配置（v2.5 DUAL-02/09）
+
+`bindings/agent_models.yaml` 声明 5 个生产角色（`script` / `visual` / `shot` /
+`edit_sound` / `director`）各自的 producer 与 critic 模型：
+
+- **硬约束（D19）**：同一角色的 producer 与 critic 必须**不同模型家族**；
+  违例时 `lib.agent_models.ensure_valid()` 拒绝启动（BLOCKED），
+  不会跑一个假的对抗审核。
+- **P0 默认**：producer=`deepseek-v4.1-flash-1017`（family `deepseek`）、
+  critic=`glm-5.3`（family `zhipu`）。换模型只改这个文件，不需要动代码；
+  家族字段是校验依据，不是装饰。
+- 环境变量 `AGENT_MODELS_PATH` 可指向另一份配置（多项目复用/测试）。
+- 自检命令：
+
+```powershell
+python -c "from lib.agent_models import ensure_valid; ensure_valid(); print('agent models ok')"
+```
+
+配置改动后建议先跑这条，再进入生产阶段——同家族配置会在启动门直接 BLOCKED。
+
 ---
 
 ## 8. 清理
@@ -327,6 +356,7 @@ Remove-Item -Recurse -Force .\projects\demo
 |---|---|---|
 | `om` 不是可识别的命令 | 未激活 venv 或未 `pip install -e .` | 用 `.\.venv\Scripts\python.exe -m shortdrama ...` |
 | `doctor` 返回 `BLOCKED` / 退出码 4 | 零 Key，required slot 缺凭据 | 预期行为；配置 Key 后再查，或继续离线流程 |
+| `demo --real` 在 brief 门停下，报 `SlotUnavailable` / `MUSIC_UNAVAILABLE` | `tiktok-draft` 只认本地曲库，空库不可用 | 按 [shortdrama-music-library.md](shortdrama-music-library.md) 把曲目放进 `music_library/` 并在 `licenses.json` 登记 |
 | `review list` 退出码 3 | 没有待审项 | 正常；用 `--stale` 看待补偿项或跑 `demo --mock` |
 | `decide` 退出码 2，提示需要确认 | 非交互模式未加 `--yes` | 加 `--yes`（仅在你确认动作有代价时） |
 | `decide` 报 `MISSING_REASON_CODE` | reject 没带原因码 | 加 `--reason <CODE>` |

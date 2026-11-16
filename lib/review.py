@@ -40,6 +40,7 @@ from typing import Any, Optional
 from jsonschema import Draft202012Validator
 
 from lib.checkpoint import PROJECTS_DIR
+from lib.review_strategies import effective_decision_chain
 from lib.review_strategies import (
     BLOCKED_WHEN_TRIPPED, BreakerState, RetryPolicy,
     effective_decision_chain, evaluate_breaker,
@@ -59,6 +60,9 @@ REASON_CODES = {
     "PACING", "DIALOGUE_CUT", "DIALECT_OFF", "MOTION_UNNATURAL",
     "CLIPPING", "SUBTITLE_MISALIGN", "HOOK_WEAK", "NARRATIVE_WEAK",
     "IDENTITY_UNKNOWN", "OTHER",
+    # v2.5 creative-gate codes (DIR-02/03, REV-03 revision) and the
+    # music-library gate (D20): library has no fitting registered track.
+    "EMOTION_FLAT", "PACING_DRAG", "PAYOFF_UNEARNED", "MUSIC_UNAVAILABLE",
 }
 
 ACTIONS = {"accept", "reject", "pick_variant", "edit_prompt", "send_back", "skip"}
@@ -66,20 +70,27 @@ ACTIONS = {"accept", "reject", "pick_variant", "edit_prompt", "send_back", "skip
 # Per-stage applicable reason codes (REV-03): a code outside the stage's set is
 # rejected (e.g. PACING on shot_gen, SUBTITLE_MISALIGN on keyframe).
 _COMMON = {"ARTIFACT", "OTHER"}
+# v2.5: creative gates (DIR-02/03) judge hook/emotion/pacing/payoff at
+# brief / script / shot_gen / assembly / delivery, with scene_plan+keyframe
+# sampled (DIR-04). MUSIC_UNAVAILABLE (D20) is assembly-only: the local
+# music_library/ has no fitting registered track, so sound_design must stop.
 STAGE_REASON_CODES: dict[str, set[str]] = {
-    "brief": {"HOOK_WEAK", "NARRATIVE_WEAK", "OTHER"},
-    "beat_map": {"PACING", "HOOK_WEAK", "NARRATIVE_WEAK", "OTHER"},
-    "script": {"PACING", "DIALOGUE_CUT", "DIALECT_OFF", "NARRATIVE_WEAK", "HOOK_WEAK", "OTHER"},
+    "brief": {"HOOK_WEAK", "NARRATIVE_WEAK", "EMOTION_FLAT", "OTHER"},
+    "beat_map": {"PACING", "HOOK_WEAK", "NARRATIVE_WEAK", "EMOTION_FLAT", "PACING_DRAG", "OTHER"},
+    "script": {"PACING", "DIALOGUE_CUT", "DIALECT_OFF", "NARRATIVE_WEAK", "HOOK_WEAK",
+               "EMOTION_FLAT", "PACING_DRAG", "PAYOFF_UNEARNED", "OTHER"},
     "character_cast": {"FACE_MISMATCH", "WARDROBE_DRIFT", "IDENTITY_UNKNOWN", "OTHER"},
-    "scene_plan": {"FRAMING_BAD", "PACING", "NARRATIVE_WEAK", "OTHER"},
+    "scene_plan": {"FRAMING_BAD", "PACING", "NARRATIVE_WEAK", "EMOTION_FLAT", "PACING_DRAG", "OTHER"},
     "keyframe": {"FACE_MISMATCH", "WARDROBE_DRIFT", "OFF_POSE", "FRAMING_BAD",
-                 "LIGHTING_WRONG", "IDENTITY_UNKNOWN", "ARTIFACT", "OTHER"},
+                 "LIGHTING_WRONG", "IDENTITY_UNKNOWN", "ARTIFACT", "EMOTION_FLAT", "OTHER"},
     "shot_gen": {"FACE_MISMATCH", "WARDROBE_DRIFT", "OFF_POSE", "LIP_SYNC_FAIL",
                  "MOTION_WRONG", "MOTION_UNNATURAL", "ARTIFACT", "FRAMING_BAD",
-                 "LIGHTING_WRONG", "DIALOGUE_CUT", "IDENTITY_UNKNOWN", "OTHER"},
+                 "LIGHTING_WRONG", "DIALOGUE_CUT", "IDENTITY_UNKNOWN", "EMOTION_FLAT", "OTHER"},
     "assembly": {"PACING", "DIALOGUE_CUT", "LIP_SYNC_FAIL", "SUBTITLE_MISALIGN",
-                 "CLIPPING", "MOTION_UNNATURAL", "NARRATIVE_WEAK", "OTHER"},
-    "delivery": {"SUBTITLE_MISALIGN", "CLIPPING", "FRAMING_BAD", "ARTIFACT", "OTHER"},
+                 "CLIPPING", "MOTION_UNNATURAL", "NARRATIVE_WEAK", "HOOK_WEAK",
+                 "EMOTION_FLAT", "PACING_DRAG", "PAYOFF_UNEARNED", "MUSIC_UNAVAILABLE", "OTHER"},
+    "delivery": {"SUBTITLE_MISALIGN", "CLIPPING", "FRAMING_BAD", "ARTIFACT",
+                 "HOOK_WEAK", "EMOTION_FLAT", "PACING_DRAG", "PAYOFF_UNEARNED", "OTHER"},
 }
 
 
@@ -154,6 +165,10 @@ class ReviewPolicy:
     face_sim_threshold: float = 0.75
     always_detail: tuple[str, ...] = ("hook", "climax")
     sampling_salt: str = "default"
+    # v2.5 DIR-04: creative-gate human sampling runs in its own queue, with
+    # its own ratio and a recorded seed (see lib.creative_sampling).
+    creative_ratio: float = 0.2
+    creative_seed: Optional[int] = None
 
     def validate(self) -> "ReviewPolicy":
         if self.mode not in ("all", "sampled"):
@@ -165,6 +180,9 @@ class ReviewPolicy:
         if not 0.0 <= float(self.face_sim_threshold) <= 1.0:
             raise ReviewValidationError(
                 f"face_sim_threshold {self.face_sim_threshold} outside 0..1")
+        if not 0.0 <= float(self.creative_ratio) <= 1.0:
+            raise ReviewValidationError(
+                f"creative_ratio {self.creative_ratio} outside 0..1")
         return self
 
     @classmethod
@@ -205,6 +223,9 @@ class ReviewDecision:
     prompt_patch: Optional[str] = None
     override: bool = False
     evidence: str = ""
+    # v2.5 DIR-02: which gate this decision closes. None keeps pre-v2.5
+    # callers working; the creative/technical split is opt-in per decision.
+    gate_type: Optional[str] = None
     decided_at: str = field(default_factory=_now)
     decided_by: str = "owner"
 
@@ -377,6 +398,23 @@ class ReviewStore:
                 raise ReviewValidationError("pick_variant requires a chosen_candidate among candidates")
         if decision.override and not decision.evidence:
             raise ReviewValidationError("override of UNKNOWN requires recorded evidence")
+        if decision.gate_type not in (None, "creative", "technical"):
+            raise ReviewValidationError(
+                f"invalid gate_type '{decision.gate_type}' (expected creative or technical)")
+        if decision.gate_type == "creative" and decision.action in {"accept", "pick_variant"}:
+            # DIR-02: the technical gate PASS is a prerequisite for the
+            # creative gate. Approving creatively without it would let a
+            # creative judgment paper over an unverified technical defect.
+            chain = effective_decision_chain(self._records(), review_id)
+            passed = any(
+                (rec.get("decision") or {}).get("gate_type") == "technical"
+                and (rec.get("decision") or {}).get("action") in {"accept", "pick_variant"}
+                for rec in chain
+            )
+            if not passed:
+                raise ReviewValidationError(
+                    "creative gate requires a prior effective technical PASS "
+                    "for this item (DIR-02)")
 
         ver = candidate_version or item.get("candidate_version")
         if ver and item.get("candidate_version") and ver != item.get("candidate_version"):
