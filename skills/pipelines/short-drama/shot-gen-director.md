@@ -81,8 +81,10 @@ not predeclared; when the planner returns BLOCKED, stop and report it.
 ## Gates
 
 Checkpoint required, `human_approval_default: true` (review point 7, with L2
-sampling). Present clips shot by shot: lipsync, motion, identity, and duration.
-Stop and end the turn.
+sampling). The `shortdrama-reviewer` agent verdict is a **prerequisite** for
+the human checkpoint: do not present clips for human approval until each has a
+PASS verdict. Then present clips shot by shot: lipsync, motion, identity, and
+duration. Stop and end the turn.
 
 ## Failure Modes
 
@@ -103,11 +105,32 @@ Stop and end the turn.
 1. Confirm the binding and its capability declaration for `video_primary`.
 2. Pick the predeclared sub-stage from the binding's declared capability; log
    any degradation and get approval.
-3. Generate one sample shot first. Review it end to end.
-4. Batch the remaining shots only after the sample passes.
+3. Generate one sample shot first. Run the Review Gate below
+   (`shortdrama-reviewer` agent) end to end.
+4. Batch the remaining shots only after the sample's reviewer verdict is
+   PASS; run the reviewer on every batched clip too, regenerating any REJECT.
 5. Record every submission in the ledger before polling, so a crash is
    recoverable.
 6. Update the asset manifest with accepted clips and checkpoint.
+
+## Review Gate (Binding)
+
+Every generated clip MUST pass the `shortdrama-reviewer` agent before it is
+accepted into `asset_manifest`. This is a hard gate, not a self-check — the
+agent's structured verdict is authoritative.
+
+- Launch `shortdrama-reviewer` (Agent subagent, stage `shot_gen`) on each clip
+  with its TTS track and the reference keyframe, plus the shot's
+  `single_action` / `dialogue` / props from `scene_plan`.
+- Verdict PASS (no blocking issue) -> the clip may be accepted.
+- Verdict REJECT (any blocking issue, e.g. `LIP_SYNC_FAIL`, `FACE_MISMATCH`,
+  `ARTIFACT`) -> regenerate; never accept a rejected clip, regardless of cost
+  already spent.
+- Eye-balling a few frames is NOT a substitute. The agent runs dense per-frame
+  mouth-motion analysis; a clip whose mouth "moves a little" can still fail
+  lip-sync (mouth animates only part of the line). Do not hand-approve.
+- For dialogue shots (`needs_lipsync: true`), the reviewer must confirm the
+  mouth covers the FULL spoken interval, not just the opening syllable.
 
 ## Self-Evaluate
 
