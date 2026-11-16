@@ -159,6 +159,34 @@ def test_shot_duration_is_clamped_to_model_support():
     assert items[0].inputs["duration_seconds"] == 10.0
 
 
+def test_shot_gen_injects_director_brief_tone_and_feeling():
+    """DIR-06: the director's tone and audience feeling reach the shot prompt."""
+    brief = {
+        "version": "1.0",
+        "visual_tone": "cold daylight, hard shadows, no gloss",
+        "audience_emotional_trigger": "quiet guilt about leaving home",
+    }
+    items = build_work_items(
+        "shot_gen", "video_primary",
+        {
+            "scene_plan": _scene_plan(1),
+            "asset_manifest": _manifest(["sh_000"]),
+            "director_brief": brief,
+        },
+    )
+    prompt = items[0].inputs["prompt"]
+    assert "Director's tone: cold daylight, hard shadows, no gloss" in prompt
+    assert "Audience feeling: quiet guilt about leaving home" in prompt
+
+
+def test_shot_gen_without_director_brief_has_no_injection():
+    items = build_work_items(
+        "shot_gen", "video_primary",
+        {"scene_plan": _scene_plan(1), "asset_manifest": _manifest(["sh_000"])},
+    )
+    assert "Director's tone" not in items[0].inputs["prompt"]
+
+
 # ---------------------------------------------------------------------------
 # character_cast / tts
 # ---------------------------------------------------------------------------

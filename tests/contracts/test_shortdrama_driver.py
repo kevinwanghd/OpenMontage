@@ -376,6 +376,21 @@ def ok_executor(calls: list) -> callable:
     return execute
 
 
+def test_artifacts_load_without_director_brief(projects):
+    """DIR-06: a project written before director_brief still loads cleanly.
+
+    The supplementary artifact is optional: load_artifacts skips a missing
+    file and no stage lists it in required_artifacts_in, so adding it to the
+    load list must not make older checkpoints fail to resume.
+    """
+    driver = Driver("demo", "ep01", projects_dir=projects, profile="alpha")
+
+    artifacts = driver._artifacts()
+
+    assert "brief" in artifacts
+    assert "director_brief" not in artifacts
+
+
 # ---------------------------------------------------------------------------
 # 1. nine stages from the manifest, mock = zero execution / zero network
 # ---------------------------------------------------------------------------
