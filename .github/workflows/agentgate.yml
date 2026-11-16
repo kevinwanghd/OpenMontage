@@ -2,7 +2,10 @@ name: AgentGate
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, edited]
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+  # approve 后重跑 gate，让 critical 审批推动自动合并（AgentGate#124）
+  pull_request_review:
+    types: [submitted]
 
 # auto-merge 任务需要 contents: write（enablePullRequestAutoMerge）；
 # 可复用工作流的 GITHUB_TOKEN 权限不得超过 caller 此处声明的上限
@@ -14,6 +17,9 @@ permissions:
 
 jobs:
   agentgate:
+    # review 事件只接受 approve，且只对同仓分支生效：fork PR 的 review 事件
+    # 会在基础仓库特权上下文运行，不能被外部代码触发
+    if: ${{ github.event_name != 'pull_request_review' || (github.event.review.state == 'approved' && github.event.pull_request.head.repo.full_name == github.repository) }}
     uses: kevinwanghd/AgentGate/.github/workflows/agentgate.yml@github-stable
     secrets: inherit
     with:
