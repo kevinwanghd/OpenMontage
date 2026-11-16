@@ -37,6 +37,8 @@ def test_peer_review_is_recorded(tmp_path):
     )
     assert verdict.passed
     assert transport.calls[0]["model"] == "glm-5.3"  # the director critic
+    # The instruction lives in the skill layer, not in Python source.
+    assert "DirectorCritic" in transport.calls[0]["system"]
     rows = dr.read_reviews(tmp_path / "drama" / "ep01")
     assert len(rows) == 1
     assert rows[0]["review_id"] == "r1"

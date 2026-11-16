@@ -4,6 +4,12 @@ A peer critic's verdict is not final: the director's own critic can confirm or
 overrule it, and the review is appended to ``director_reviews.jsonl`` so the
 escalation is auditable instead of living in a chat log.
 
+This module only records an advisory peer-review verdict. It does not close
+stage gates, approve deliverables, or bypass any human approval: disputes still
+escalate to a human (D15), and the stage checkpoint remains the authority.
+The instruction template lives in the skill layer
+(``skills/pipelines/short-drama/dual-agent-prompts.yaml``), not in Python.
+
 The director pair obeys D19 like every other role: ``agent_models`` validates
 that the director producer and critic belong to different model families, and
 this module refuses to start otherwise.
@@ -11,26 +17,36 @@ this module refuses to start otherwise.
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Optional
+
+import yaml
 
 from lib import agent_models
 from lib.dual_agent import CriticVerdict, GatewayTransport, Transport, parse_verdict
 
 AUDIT_FILENAME = "director_reviews.jsonl"
-
-PEER_SYSTEM = (
-    "You are the DirectorCritic. A peer critic made the decision below. "
-    "Confirm it only if the decision serves the director's brief and the "
-    "episode's dramatic intent; overrule it when it rubber-stamps a flat cut, "
-    "misses a broken hook, or enforces a rule that hurts the story. "
-    "Reply with ONLY a JSON object, no prose and no code fence: "
-    '{"verdict": "PASS" or "REJECT", "findings": [{"title": "...", '
-    '"text": "...", "severity": "blocking" or "warning"}]}. '
-    "Use REJECT with at least one blocking finding when the peer decision "
-    "must not stand."
+DEFAULT_PROMPTS_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "skills" / "pipelines" / "short-drama" / "dual-agent-prompts.yaml"
 )
+PROMPTS_PATH_ENV = "DUAL_AGENT_PROMPTS_PATH"
+
+
+def _load_peer_system(path: Optional[Path | str] = None) -> str:
+    """Load the DirectorCritic instruction from the skill layer."""
+    prompt_path = Path(path) if path else Path(
+        os.environ.get(PROMPTS_PATH_ENV, DEFAULT_PROMPTS_PATH)
+    )
+    if not prompt_path.is_file():
+        raise ValueError(f"dual-agent prompts not found: {prompt_path}")
+    data = yaml.safe_load(prompt_path.read_text(encoding="utf-8")) or {}
+    system = str(data.get("director_critic_system") or "").strip()
+    if not system:
+        raise ValueError(f"director_critic_system missing in {prompt_path}")
+    return system
 
 
 def review_peer(
@@ -63,7 +79,7 @@ def review_peer(
         f"{question.strip()}\n\n"
         "Reply with the JSON verdict."
     )
-    raw = transport.complete(pair.critic.model, PEER_SYSTEM, prompt)
+    raw = transport.complete(pair.critic.model, _load_peer_system(), prompt)
     verdict = parse_verdict(raw)
 
     record: dict[str, Any] = {
