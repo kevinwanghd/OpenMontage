@@ -27,6 +27,14 @@ class PredicateError(ValueError):
     """A predicate or its arguments are unusable (missing key, wrong shape)."""
 
 
+class PredicateConfigError(PredicateError):
+    """The predicate declaration itself is unusable (unknown kind, bad wiring).
+
+    This is deliberately a distinct type: missing evidence is "not armed" and
+    may be recorded as pending, but a broken declaration must BLOCK the gate.
+    """
+
+
 def _number(value: Any, name: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise PredicateError(f"{name} must be a number")
@@ -180,7 +188,7 @@ def evaluate(
     kind = str(predicate.get("kind") or "").strip()
     evaluator = EVALUATORS.get(kind)
     if evaluator is None:
-        raise PredicateError(f"unknown predicate kind: {kind!r}")
+        raise PredicateConfigError(f"unknown predicate kind: {kind!r}")
     return evaluator(predicate, context)
 
 

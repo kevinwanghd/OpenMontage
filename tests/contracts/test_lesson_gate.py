@@ -88,3 +88,14 @@ def test_missing_evidence_is_recorded_not_silently_skipped():
     assert blocked == []
     assert skipped and skipped[0]["id"] == "test.lesson"
     assert skipped[0]["reason"].startswith("no evidence:")
+
+
+def test_unknown_predicate_kind_blocks_instead_of_skipping():
+    skipped = []
+    blocked = lesson_gate.blocked_entries(
+        "assembly", [_lesson(predicate={"kind": "not_registered"})], {}, skipped
+    )
+    assert skipped == []
+    assert blocked and blocked[0]["verdict"] == "error"
+    assert "not_registered" in blocked[0]["reason"]
+    assert blocked[0]["fix"] == "按 fix 修正"

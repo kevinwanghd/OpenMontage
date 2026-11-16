@@ -6,7 +6,10 @@ lesson id and the original fix text (not a generic "lesson failed").
 
 Fail-closed rules:
 - ``False`` and ``None`` both block; only ``True`` passes.
-- An evaluator that raises blocks with the exception text.
+- A misconfigured predicate (``PredicateConfigError``: unknown kind, bad wiring)
+  blocks with the exception text.
+- Missing evidence (plain ``PredicateError``) is "not armed": it is recorded in
+  ``skipped`` so the caller can log/count it, never treated as a pass.
 - ``soft`` lessons are never evaluated here; they belong to human/DIR-04 review.
 """
 from __future__ import annotations
@@ -55,6 +58,19 @@ def blocked_entries(
         predicate = lesson.predicate or {}
         try:
             verdict = lesson_predicates.evaluate(predicate, context)
+        except lesson_predicates.PredicateConfigError as error:
+            # The predicate declaration itself is unusable (unknown kind, bad
+            # wiring). That is a configuration error, not missing evidence:
+            # fail closed instead of silently disarming the hard lesson.
+            blocked.append({
+                "id": lesson.id,
+                "stage": stage,
+                "kind": predicate.get("kind"),
+                "verdict": "error",
+                "reason": f"misconfigured predicate: {error}",
+                "fix": lesson.fix,
+            })
+            continue
         except lesson_predicates.PredicateError as error:
             # The evidence this lesson measures was never collected for this
             # stage (legacy projects, stages without an evidence file). That is
