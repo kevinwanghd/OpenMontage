@@ -850,6 +850,80 @@ def _cmd_ledger_reconcile(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_plan(args: argparse.Namespace) -> int:
+    """Resolve the run plan; never executes a stage or a provider call."""
+    from lib.lessons import LessonConfigError
+
+    service = _service(args)
+    driver = Driver(
+        args.project,
+        args.episode,
+        projects_dir=service.projects_dir,
+        profile=args.profile or "",
+    )
+    try:
+        plan = driver.plan()
+    except LessonConfigError as exc:
+        _write({"error": str(exc)}, args.json)
+        return 2
+    _write(plan, args.json)
+    return 0
+
+
+def _cmd_lesson_capture(args: argparse.Namespace) -> int:
+    """Turn a user objection into a structured pending lesson (v2.6 LESSON-02)."""
+    from lib import lesson_capture
+
+    root = args.root or Path(__file__).resolve().parents[1]
+    predicate = {"kind": args.predicate_kind} if args.predicate_kind else None
+    try:
+        path = lesson_capture.capture_manual(
+            root,
+            reason_code=args.reason_code,
+            stage=args.stage,
+            evidence=args.evidence,
+            enforcement=args.enforcement,
+            fix=args.fix or "",
+            regression=args.regression or "",
+            predicate=predicate,
+            regression_fixture=args.fixture,
+        )
+    except lesson_capture.LessonCaptureError as exc:
+        _write({"error": str(exc)}, args.json)
+        return 2
+    _write({"written": str(path), "reason_code": args.reason_code,
+            "enforcement": args.enforcement}, args.json)
+    return 0
+
+
+def _cmd_lesson_list(args: argparse.Namespace) -> int:
+    """List repository lessons; invalid records fail loudly (CARD-L01)."""
+    from lib import lessons
+
+    try:
+        loaded = lessons.load(args.path)
+    except lessons.LessonConfigError as exc:
+        _write({"error": str(exc)}, args.json)
+        return 2
+    _write(
+        {
+            "count": len(loaded),
+            "lessons": [
+                {
+                    "id": lesson.id,
+                    "enforcement": lesson.enforcement,
+                    "status": lesson.status,
+                    "reason_code": lesson.reason_code,
+                    "stages": list(lesson.applies_to_stages),
+                }
+                for lesson in loaded
+            ],
+        },
+        args.json,
+    )
+    return 0
+
+
 def _cmd_qa(args: argparse.Namespace) -> int:
     """Deterministic review gate; exit 0 only when nothing blocking remains."""
     from shortdrama import qa
@@ -1143,6 +1217,45 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--force", action="store_true")
     _add_json(p)
     p.set_defaults(func=_cmd_ledger_reconcile)
+
+    p = commands.add_parser(
+        "plan", help="resolve stages/slots and list applicable lessons (read-only)"
+    )
+    p.add_argument("--project", default="demo")
+    p.add_argument("--episode", default="ep01")
+    p.add_argument("--profile", default=None)
+    _add_json(p)
+    p.set_defaults(func=_cmd_plan)
+
+    lesson = commands.add_parser(
+        "lesson", help="capture and inspect governance lessons (v2.6 LESSON-02)"
+    )
+    lesson_sub = lesson.add_subparsers(dest="lesson_command", required=True)
+
+    p = lesson_sub.add_parser(
+        "capture", help="record a user objection as a structured pending lesson"
+    )
+    p.add_argument("--reason-code", required=True,
+                   help="registered reason code (lib/review.py REASON_CODES)")
+    p.add_argument("--stage", required=True, help="stage where the objection applies")
+    p.add_argument("--evidence", required=True, help="what the user said, quoted")
+    p.add_argument("--enforcement", choices=["soft", "hard"], default="soft",
+                   help="soft (default) records; hard requires predicate + fixture")
+    p.add_argument("--fix", default="", help="the corrective rule")
+    p.add_argument("--regression", default="", help="what happened (incident description)")
+    p.add_argument("--predicate-kind", default=None,
+                   help="registered predicate primitive (required for hard)")
+    p.add_argument("--fixture", default=None,
+                   help="regression fixture path taken from the real incident (hard only)")
+    p.add_argument("--root", type=Path, default=None,
+                   help="repository root that holds .governance/ (default: repo root)")
+    _add_json(p)
+    p.set_defaults(func=_cmd_lesson_capture)
+
+    p = lesson_sub.add_parser("list", help="list lessons from the repository lesson file")
+    p.add_argument("--path", type=Path, default=None, help="lesson file (default: repository.yml)")
+    _add_json(p)
+    p.set_defaults(func=_cmd_lesson_list)
 
     p = commands.add_parser("demo", help="seed a mock episode or drive the 9-stage pipeline")
     p.add_argument("--mock", action="store_true",

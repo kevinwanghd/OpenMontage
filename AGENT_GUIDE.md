@@ -145,6 +145,19 @@ Orthogonal to *runtime* is *authoring mode*: **how** the composition is built. P
 
 **Default to atelier for hero work** — marketing, launches, brand pieces, any single-deliverable explainer that must impress. The deciding rule: *reuse engine knowledge, never creative components.* In atelier mode the stock scene-type catalog, `hyperframes-registry` blocks, fixtures, and finished components are **off-limits** — they are frozen looks that reintroduce sameness. Before building, route through **`skills/meta/taste-direction.md`** to set the design read and taste dials, then **`skills/meta/bespoke-composition.md`**, which sequences: art direction (`visual-style`) → motion principles (Disney 12 via `framer-motion`/`lottie-bodymovin`) → engine mechanics (`remotion-best-practices` + the stock components read *only as a mechanics codex*) → render via the atelier path. Close with a **distinctness review**: *could this be any other product's video? does it reuse a look I've made before?* — the inverse of "does it match the reference." Atelier costs more tokens and iteration than templated; say so at proposal so the user opts in knowingly.
 
+### Record Negative Feedback as a Lesson (Binding)
+
+When the user rejects work in conversation — "the music doesn't fit", "this cut is flat", "that subtitle is wrong" — the objection must not stay in chat, where it evaporates with the session. Before doing anything else, record it:
+
+```bash
+om lesson capture --reason-code <CODE> --stage <stage> --evidence "<the user's exact words>"
+```
+
+- Quote the user's actual words in `--evidence`; do not soften them into a summary.
+- Use `--enforcement hard` only when the rule is machine-decidable; then also pass `--predicate-kind` and `--fixture`, and the fixture must come from the real incident (v2.6 D24).
+- Taste and preference stay `soft`. Never harden a subjective objection into a stage gate.
+- If no registered reason code fits, register one first (`lib/review.py` + `lib/review_strategies.py` + the web mirror) — do not silently fall back to `OTHER`.
+
 ### Escalate Blockers Explicitly
 
 When a blocker occurs, the agent must surface it immediately using this structure:

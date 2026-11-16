@@ -31,3 +31,11 @@
 - 私有仓库 Actions 分钟额度用尽后，OpenMontage 与 UseGEO 临时转为公开仓库（公开库标准 runner 免费），计划两周后调回私有。
 - 公开期间开启：Secret scanning、Push protection、CodeQL、Dependabot alerts、私有漏洞上报、fork PR 全量审批；分支保护要求 `agentgate / gate-decision` 必过。
 - 上述开关里 Secret scanning、Push protection、CodeQL、分支保护只对公开库免费，**转回私有时会失效**，届时需重新评估是否升级 Pro。
+
+## 2026-11-16 流程改动必须先入 PRD（原则）
+
+- **顺序不可颠倒**：PRD（含全部澄清）→ **用户确认 PRD** → 拆需求卡 → **用户确认卡** → 代码 → 测试验收 → PR。任何流程改动先同步到 PRD；两道用户确认门都不可跳过，**未确认卡不得进入开发**。不允许先写代码再补文档，也不允许把设计只留在对话里。
+- **什么算流程改动**（命中任一项即是）：阶段产出物 / 门的判定条件 / 审核点 / 角色分工 / 决策与审计记录格式 / 降级路径。
+- **PRD 源头**：`E:\ClaudeCode\01_设计方案\`（短剧平台 = `short-drama-platform-v2.5-director-layer.md`，需求卡 = `short-drama-v2.5-requirement-cards.md`）。仓库内文档是派生物，不是源头。
+- **例外**：纯 bug 修复（不改流程语义）可直接修；但若修复暴露了流程缺口，缺口本身仍须回写 PRD 后再拆卡。
+- 由来：2026-11-16 讨论"教训进化机制"时用户定下——设计不落 PRD 就会随会话蒸发，下一次又从零争论。

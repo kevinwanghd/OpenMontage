@@ -263,7 +263,31 @@ class Driver:
             # DIR-03: the four director gates are machine-visible in every
             # plan, so a plan request is itself a gate audit.
             "director_gates": self._director_gate_status(),
+            # v2.6 LESSON-04: lessons that touch this pipeline, so an operator
+            # sees the applicable rules before running anything. Read-only: the
+            # plan never evaluates a predicate.
+            "applicable_lessons": self._applicable_lessons(),
         }
+
+    def _applicable_lessons(self) -> list[dict[str, Any]]:
+        """Lessons whose stage scope touches this pipeline (read-only)."""
+        from lib import lessons
+
+        loaded = lessons.load()
+        return [
+            {
+                "id": lesson.id,
+                "enforcement": lesson.enforcement,
+                "status": lesson.status,
+                "reason_code": lesson.reason_code,
+                "stages": [
+                    stage for stage in self.stage_order if lesson.applies_to(stage)
+                ],
+                "fix": lesson.fix,
+            }
+            for lesson in loaded
+            if any(lesson.applies_to(stage) for stage in self.stage_order)
+        ]
 
     # ------------------------------------------------------------------
     # Entry point
