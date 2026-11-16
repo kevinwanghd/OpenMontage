@@ -22,7 +22,8 @@ concurrency:
 jobs:
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+    # 固定镜像版本：ffmpeg 等预装工具随镜像更新变化，锁定版本才能复现
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout repository
@@ -45,9 +46,10 @@ jobs:
         run: make lint
 
   validate:
-    # 按目录分片到独立 runner：墙钟≈最慢分片，且各分片不共享进程状态
+    # 按目录分片到独立 runner：墙钟≈最慢分片，且各分片不共享进程状态。
+    # 分片只决定"跑哪些用例"，仓库仍然整份检出，跨目录 import 不受影响。
     name: Validate Python (${{ matrix.group }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -66,9 +68,12 @@ jobs:
             requirements.txt
             requirements-dev.txt
 
-      # ubuntu-latest 镜像自带 ffmpeg；只在缺失时安装，省掉每次 20-60s 的 apt
+      # 镜像自带 ffmpeg；只在缺失时安装，省掉每次 20-60s 的 apt。
+      # 镜像版本已固定为 ubuntu-24.04，并打印版本便于对不上时排查。
       - name: Ensure ffmpeg
-        run: command -v ffmpeg || (sudo apt-get update && sudo apt-get install -y ffmpeg)
+        run: |
+          command -v ffmpeg || (sudo apt-get update && sudo apt-get install -y ffmpeg)
+          ffmpeg -version | head -1
 
       - name: Install dependencies
         run: make install-dev

@@ -736,6 +736,10 @@ make test-contracts
 
 # Run all tests
 make test
+
+# CI 用：按目录分片跑测试（GROUP=tools|contracts|pipeline）
+# 三个分片在各自 runner 上并行，片内串行；本地要复现 CI 失败时用同一个 GROUP。
+make test-ci GROUP=contracts
 ```
 
 ---
