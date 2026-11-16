@@ -30,11 +30,9 @@
 | `tokens` | 该侧 token 数 |
 | `cost_usd` | **该侧成本**（不是总额；对行求和即真实总成本） |
 
-## director_reviews.jsonl —— DirectorCritic 复核（DUAL-07）
+## 其他 episode 产物
 
-每行：`created_at / review_id / model / peer_summary / question / verdict{verdict,findings}`。
-
-## creative_samples.jsonl —— 创意门人工抽检（DIR-04）
-
-每行：`created_at / ratio / seed / candidates / chosen`。
-`seed` 可重放：`lib.creative_sampling.replay(sample)` 应得到同一 `chosen`。
+- `creative_samples.jsonl`（创意门抽检，DIR-04）：见
+  [shortdrama-creative-sampling.md](shortdrama-creative-sampling.md)。
+- `director_reviews.jsonl`（DirectorCritic 复核，DUAL-07）：见
+  [shortdrama-review-gates.md](shortdrama-review-gates.md) 的导演侧说明。

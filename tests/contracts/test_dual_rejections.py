@@ -51,6 +51,22 @@ def test_rejection_requires_findings_and_codes(tmp_path):
         dr.record_rejection(ep, role="script", reason_code=" ", findings=[_finding()], model="m")
 
 
+def test_unknown_reason_code_is_rejected(tmp_path):
+    with pytest.raises(ValueError, match="unknown reason_code"):
+        dr.record_rejection(
+            tmp_path, role="script", reason_code="NOT_REGISTERED",
+            findings=[_finding()], model="m",
+        )
+
+
+def test_unknown_severity_is_rejected(tmp_path):
+    with pytest.raises(ValueError, match="severity"):
+        dr.record_rejection(
+            tmp_path, role="script", reason_code="HOOK_WEAK",
+            findings=[{"title": "t", "text": "t", "severity": "fatal"}], model="m",
+        )
+
+
 def test_regeneration_hint_reads_the_documented_strategy():
     hint = dr.regeneration_hint("HOOK_WEAK")
     assert hint.strategy in {"regenerate", "send_back"}

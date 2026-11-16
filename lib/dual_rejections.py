@@ -19,7 +19,7 @@ from typing import Any, Iterable, Mapping, Optional
 # lib.review_strategies already exists on main (REV-05 canonical strategy
 # table, used by lib/review.py and the review CLI); this module only imports
 # it. Nothing in this change adds or moves that module.
-from lib.review_strategies import RegenerationStrategy, strategy_for
+from lib.review_strategies import STRATEGIES, RegenerationStrategy, strategy_for
 
 REJECTIONS_FILENAME = "rejections.jsonl"
 COST_FILENAME = "agent_cost.jsonl"
@@ -45,9 +45,21 @@ def record_rejection(
     """Append one critic REJECT to the episode rejection library (LIB-06)."""
     if not role.strip():
         raise ValueError("rejection needs the role that was rejected")
-    if not reason_code.strip():
-        raise ValueError("rejection needs a reason_code")
-    items = [dict(finding) for finding in findings]
+    if reason_code not in STRATEGIES:
+        raise ValueError(
+            f"unknown reason_code {reason_code!r}; register it in the REV-03 "
+            "table before persisting a rejection"
+        )
+    items = []
+    for finding in findings:
+        item = dict(finding)
+        severity = str(item.get("severity", "warning")).lower()
+        if severity not in {"blocking", "warning"}:
+            raise ValueError(
+                f"finding severity {severity!r} must be blocking or warning"
+            )
+        item["severity"] = severity
+        items.append(item)
     if not items:
         raise ValueError("rejection needs at least one finding")
     record = {
