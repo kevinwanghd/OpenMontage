@@ -29,6 +29,7 @@ send the item back to an earlier pipeline stage.
 | PACING_DRAG       | send_back  | beat_map        | no   | —                                     | no      | no    |
 | PAYOFF_UNEARNED   | send_back  | script          | no   | —                                     | no      | no    |
 | MUSIC_UNAVAILABLE | send_back  | assembly        | no   | —                                     | no      | yes   |
+| MUSIC_MISMATCH    | send_back  | assembly        | no   | —                                     | no      | yes   |
 | OTHER             | regenerate | same stage      | yes  | —                                     | no      | no    |
 
 REV-06 — consecutive-rejection circuit breaker. The streak is projected from
@@ -155,6 +156,10 @@ STRATEGIES: dict[str, RegenerationStrategy] = {
         _s("MUSIC_UNAVAILABLE", "send_back", "assembly", human=True,
            rationale="No registered track in music_library/ fits the emotional curve; "
                      "a human must add a licensed track before sound_design proceeds (D20)."),
+        _s("MUSIC_MISMATCH", "send_back", "assembly", human=True,
+           rationale="The track is licensed but does not fit the scene; taste is not "
+                     "machine-decidable, so a human picks another registered track "
+                     "instead of an automatic re-roll (D24)."),
         _s("OTHER", "regenerate", seed=True,
            rationale="Unclassified rejection — safest automatic path is a same-stage "
                      "re-roll with a new seed, then human review."),

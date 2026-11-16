@@ -4,6 +4,7 @@ lessons:
   - id: shortdrama.music.audition_before_use
     enforcement: soft
     status: pending
+    reason_code: MUSIC_MISMATCH
     applies_to_stages: [assembly, delivery]
     applies_to: "短剧装配选曲（assembly/sound_design）、向 music_library/ 引入曲目、写 edit_decisions 的 audio.music"
     trigger: "在 edit_decisions 里引用任何 music_library 曲目之前"

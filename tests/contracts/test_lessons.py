@@ -93,6 +93,17 @@ def test_hard_lesson_without_fixture_fails_loading(tmp_path):
     assert "regression_fixture" in str(raised.value)
 
 
+def test_hard_lesson_without_reason_code_loads(tmp_path, monkeypatch):
+    # A lesson's identity is its predicate, not a review code (v2.6 §2).
+    monkeypatch.setattr(lessons, "PRIMITIVES", {"subtitle_timing_matches_speech": "timing"})
+    record = _hard()
+    record.pop("reason_code")
+    path = _write(tmp_path, [record])
+    loaded = lessons.load(path)
+    assert loaded[0].enforcement == "hard"
+    assert loaded[0].reason_code is None
+
+
 def test_hard_lesson_without_predicate_fails_loading(tmp_path):
     record = _hard()
     record.pop("predicate")
