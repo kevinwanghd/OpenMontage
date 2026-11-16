@@ -549,6 +549,7 @@ class Driver:
         if self._artifacts_cache is None:
             names = (
                 "brief",
+                "director_brief",
                 "beat_map",
                 "script",
                 "character_design",
