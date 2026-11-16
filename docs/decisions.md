@@ -19,3 +19,15 @@
 
 - 草稿 PR 不跑 AI 审查、不等 CI；转正式（ready_for_review）后整轮重跑。
 - 何时送审由人或 Agent 判断，不做 push 即开 PR。
+
+## 2026-11-15 no-mistakes 不采用
+
+- 评估过 `no-mistakes`（本地 git 代理门禁：review/test/document 三阶段后放行 push），结论是**不接入流程**。
+- 理由三条：本地门可被绕过（push 路径不受控）；职责与 AgentGate 重叠（合并权威已统一到 gate）；成本不划算（一次试跑 45 分钟仍未走完 document 阶段）。
+- 二进制保留在本机，随时可再评估；不进 CI、不进推送链路。
+
+## 2026-11-16 公开窗口与安全开关
+
+- 私有仓库 Actions 分钟额度用尽后，OpenMontage 与 UseGEO 临时转为公开仓库（公开库标准 runner 免费），计划两周后调回私有。
+- 公开期间开启：Secret scanning、Push protection、CodeQL、Dependabot alerts、私有漏洞上报、fork PR 全量审批；分支保护要求 `agentgate / gate-decision` 必过。
+- 上述开关里 Secret scanning、Push protection、CodeQL、分支保护只对公开库免费，**转回私有时会失效**，届时需重新评估是否升级 Pro。
