@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from lib import capability_slots as slots
+from lib import agent_models, director_gates, music_licenses
 from lib.checkpoint import PROJECTS_DIR, read_checkpoint, write_checkpoint
 from lib.decision_log import DecisionEntry, DecisionLog
 from lib.pipeline_loader import (
@@ -256,7 +257,13 @@ class Driver:
                     unresolved += 1
                 entry["slots"].append(item)
             stages.append(entry)
-        return {"stages": stages, "unresolved_slots": unresolved}
+        return {
+            "stages": stages,
+            "unresolved_slots": unresolved,
+            # DIR-03: the four director gates are machine-visible in every
+            # plan, so a plan request is itself a gate audit.
+            "director_gates": self._director_gate_status(),
+        }
 
     # ------------------------------------------------------------------
     # Entry point
@@ -562,6 +569,7 @@ class Driver:
                 "asset_manifest",
                 "edit_decisions",
                 "render_report",
+                "publish_log",
             )
             try:
                 self._artifacts_cache = content.load_artifacts(
@@ -577,6 +585,70 @@ class Driver:
                 ) from exc
         return self._artifacts_cache
 
+    def _director_gate_status(self) -> dict[str, bool]:
+        """Effective creative approval per director gate (DIR-03)."""
+        records = self._review_records()
+        return {
+            gate: director_gates.stage_has_director_pass(records, stages)
+            for gate, stages in director_gates.DIRECTOR_GATE_STAGES.items()
+        }
+
+    def _review_records(self) -> list[dict[str, Any]]:
+        from lib.review import ReviewStore
+
+        store = ReviewStore(self.project, self.episode, projects_dir=self.projects_dir)
+        return store.records()
+
+    def _require_director_gate(self, stage: str, gate: str) -> None:
+        """Block paid stages until the upstream director gate is closed."""
+        stages = director_gates.DIRECTOR_GATE_STAGES[gate]
+        records = self._review_records()
+        if director_gates.stage_has_director_pass(records, stages):
+            return
+        raise self._pause(
+            ErrorCode.BATCH_PRECONDITION_FAILED,
+            f"stage '{stage}' requires director gate '{gate}' to be closed "
+            "before any paid call (DIR-03)",
+            "record a technical PASS then a creative approval for a review "
+            "item in that gate: om review decide <id> --action accept "
+            "--gate-type technical, then --gate-type creative",
+            recovery="do-X-first",
+            side_effects="none",
+            context={"stage": stage, "director_gate": gate},
+        )
+
+    def _music_license_gate(self) -> None:
+        """AUD-10/D20: every referenced music asset must be registered legal."""
+        decisions = self._artifacts().get("edit_decisions")
+        if not decisions:
+            return
+        if not music_licenses.music_asset_ids(decisions):
+            return  # no music referenced: nothing to enforce here
+        try:
+            library = music_licenses.load()
+        except music_licenses.MusicLicenseError as error:
+            raise self._pause(
+                ErrorCode.BATCH_PRECONDITION_FAILED,
+                f"music library is unusable: {error}",
+                "register tracks in music_library/licenses.json "
+                "(commercial_use=true), see docs/shortdrama-music-library.md",
+                recovery="do-X-first",
+                side_effects="none",
+                context={"stage": "delivery", "music_library": str(error)},
+            ) from error
+        publish_log = self._artifacts().get("publish_log") or {}
+        problems = music_licenses.audit(decisions, library, json.dumps(publish_log))
+        if problems:
+            raise self._pause(
+                ErrorCode.BATCH_PRECONDITION_FAILED,
+                "music license gate failed: " + "; ".join(problems),
+                "fix music_library/licenses.json or the edit_decisions music "
+                "references, then re-run (AUD-10)",
+                recovery="do-X-first",
+                side_effects="none",
+                context={"stage": "delivery", "music_problems": problems},
+            )
+
     def _preflight_stage(self, stage: str) -> None:
         """Fail before spending: artifacts exist and creative review is done.
 
@@ -586,6 +658,26 @@ class Driver:
         gate that makes script and scene-plan review mandatory before any
         paid generation call.
         """
+        # DUAL-02/09 (D19): refuse to run when any producer/critic pair would
+        # be same-family -- a fake adversarial review is worse than none.
+        try:
+            agent_models.ensure_valid()
+        except agent_models.AgentModelConfigError as error:
+            raise self._pause(
+                ErrorCode.BATCH_PRECONDITION_FAILED,
+                f"agent model configuration is unusable: {error}",
+                "fix bindings/agent_models.yaml so every role's producer and "
+                "critic use different model families, then re-run",
+                recovery="do-X-first",
+                side_effects="none",
+                context={"stage": stage, "agent_models": str(error)},
+            ) from error
+        # DIR-03: paid stages wait for their upstream director gate.
+        gate_for_stage = {"shot_gen": "script_shot", "delivery": "assembly"}
+        if stage in gate_for_stage:
+            self._require_director_gate(stage, gate_for_stage[stage])
+        if stage == "delivery":
+            self._music_license_gate()
         declared = self._stage_decl(stage)
         required = [str(name) for name in declared.get("required_artifacts_in") or []]
         if not self.keyframes_required and stage == "shot_gen":
