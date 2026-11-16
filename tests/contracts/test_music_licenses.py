@@ -88,6 +88,14 @@ def test_attribution_required_track_must_be_credited():
     ) == []
 
 
+def test_attribution_required_with_empty_credit_is_blocked():
+    track = _track(attribution=True)
+    track["artist"] = " "
+    track["title"] = ""
+    problems = ml.check_attribution(_decisions(), _library(track), rights_text="")
+    assert problems and "no artist/title" in problems[0]
+
+
 def test_audit_combines_all_checks():
     problems = ml.audit(_decisions("unknown.mp3"), _library(), rights_text="")
     assert len(problems) == 1 and "not registered" in problems[0]

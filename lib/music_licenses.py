@@ -134,8 +134,17 @@ def check_attribution(
         track = index.get(asset_id)
         if track is None or track.get("attribution_required") is not True:
             continue
-        credit = f"{track.get('artist', '')} - {track.get('title', '')}".strip(" -")
-        if credit and credit not in rights_text:
+        artist = str(track.get("artist") or "").strip()
+        title = str(track.get("title") or "").strip()
+        credit = f"{artist} - {title}".strip(" -")
+        if not credit:
+            # An empty credit must not silently satisfy the attribution check.
+            problems.append(
+                f"music '{asset_id}' requires attribution but has no artist/title "
+                "to credit (AUD-10)"
+            )
+            continue
+        if credit not in rights_text:
             problems.append(
                 f"music '{asset_id}' requires attribution '{credit}' in the publish log (AUD-10)"
             )
