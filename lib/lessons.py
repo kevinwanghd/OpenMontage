@@ -36,6 +36,13 @@ REQUIRED_FIELDS = ("id", "enforcement", "trigger", "risk", "fix", "regression", 
 # A lesson's identity is its predicate, not a review reason code. `reason_code`
 # stays optional for every lesson (v2.6 §2, 2026-11-16): codes are only
 # registered for failure classes that actually appear in review decisions.
+#
+# Migration note (why removing the requirement is safe): nothing indexes
+# ``review_strategies.STRATEGIES`` by ``Lesson.reason_code``. The only consumer
+# of a lesson's code is display/aggregation (``om plan``, ``om lesson list``),
+# which tolerates ``None``; predicates are resolved through
+# ``PRIMITIVES`` by ``predicate.kind`` instead. Existing lessons that carry a
+# code keep working unchanged, so no data migration is needed.
 HARD_REQUIRED_FIELDS = ("predicate", "regression_fixture")
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -109,7 +116,13 @@ def _as_text(value: Any) -> str:
 def validate_lesson(
     record: Mapping[str, Any], *, stages: Optional[Iterable[str]] = None
 ) -> list[str]:
-    """Return human-readable problems with one lesson record ([] when valid)."""
+    """Return human-readable problems with one lesson record ([] when valid).
+
+    The predicate primitives register themselves on import; doing it here (not
+    at module scope) keeps ``lib.lessons`` importable on its own and avoids a
+    module-level import cycle with ``lib.lesson_predicates``.
+    """
+    from lib import lesson_predicates  # noqa: F401 — registration side effect
     problems: list[str] = []
     stage_set = frozenset(stages) if stages is not None else known_stages()
 
@@ -231,8 +244,3 @@ def ensure_valid(lessons: Iterable[Lesson]) -> None:
     for lesson in lessons:
         if lesson.enforcement == "hard" and not lesson.predicate:
             raise LessonConfigError(f"hard lesson {lesson.id!r} has no predicate")
-
-# Register the v2.6 LESSON-05 primitives at import time so a lesson naming one
-# loads instead of failing as "declared but unwired" (W1-W6).
-# risk:suppressed-warning reason:"延迟导入用于注册原语，必须放在模块末尾以避开循环导入；import 顺序不是缺陷" owner:@kevinwanghd reviewed:2026-11-16
-from lib import lesson_predicates as _lesson_predicates  # noqa: E402,F401

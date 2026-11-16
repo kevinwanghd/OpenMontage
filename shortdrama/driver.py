@@ -318,7 +318,17 @@ class Driver:
         return context
 
     def _lesson_gate(self, stage: str) -> None:
-        """v2.6 LESSON-06: applicable hard lessons must be True, or the stage BLOCKS."""
+        """v2.6 LESSON-06: applicable hard lessons must be True, or the stage BLOCKS.
+
+        This enforces a decision that is already made elsewhere: a hard lesson
+        only reaches the repository after human confirmation (status=confirmed)
+        and carries a predicate + incident fixture. The driver adds no new
+        authority here — it refuses to spend money when a human-approved
+        invariant is violated, the same way the D19 agent-model and continuity
+        gates do. Keeping the check unskippable in code is the point: an
+        Agent-layer-only rule is exactly the W1-W6 "module built, never called"
+        failure this lesson loop exists to prevent.
+        """
         from lib import lesson_gate, lessons as lesson_mod
 
         self._lesson_evaluated = getattr(self, "_lesson_evaluated", 0)
