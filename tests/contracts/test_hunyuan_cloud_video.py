@@ -8,6 +8,7 @@ Run: pytest tests/contracts/test_hunyuan_cloud_video.py -v
 
 from __future__ import annotations
 
+from urllib.parse import urlparse
 import json
 import sys
 import types
@@ -524,7 +525,7 @@ class TestExecuteWithMocks:
 
         # Verify submit was called to the correct TokenHub endpoint
         submit_call = calls["post"][0]
-        assert "tokenhub.tencentmaas.com" in submit_call["url"]
+        assert urlparse(submit_call["url"]).hostname == "tokenhub.tencentmaas.com"
         assert submit_call["url"].endswith("/v1/api/video/submit")
         assert submit_call["headers"]["Authorization"] == "Bearer thub-fake-test-key"
         assert submit_call["json"]["model"] == "hy-video-1.5"
