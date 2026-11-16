@@ -1,0 +1,16 @@
+{
+  "incident": "M1 第 7 句字幕提前 1.36s，语音尾部 0.75s 无字幕",
+  "subtitles": [
+    {
+      "start": 16.32,
+      "end": 18.55
+    }
+  ],
+  "speech": [
+    {
+      "start": 17.68,
+      "end": 19.3
+    }
+  ],
+  "expected": "FAIL"
+}

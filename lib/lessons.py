@@ -38,6 +38,7 @@ REQUIRED_FIELDS = ("id", "enforcement", "trigger", "risk", "fix", "regression", 
 # registered for failure classes that actually appear in review decisions.
 HARD_REQUIRED_FIELDS = ("predicate", "regression_fixture")
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_LESSONS_PATH = (
     Path(__file__).resolve().parents[1] / "governance" / "lessons" / "repository.yml"
 )
@@ -154,6 +155,11 @@ def validate_lesson(
         for name in HARD_REQUIRED_FIELDS:
             if not record.get(name):
                 problems.append(f"hard lesson requires '{name}' (v2.6 D24)")
+        fixture = _as_text(record.get("regression_fixture"))
+        if fixture and not (REPO_ROOT / fixture).is_file():
+            problems.append(
+                f"hard lesson regression_fixture does not exist: {fixture} (v2.6 LESSON-07)"
+            )
         if reason_code and reason_code not in REASON_CODES:
             pass  # already reported above
     return problems
@@ -225,3 +231,7 @@ def ensure_valid(lessons: Iterable[Lesson]) -> None:
     for lesson in lessons:
         if lesson.enforcement == "hard" and not lesson.predicate:
             raise LessonConfigError(f"hard lesson {lesson.id!r} has no predicate")
+
+# Register the v2.6 LESSON-05 primitives at import time so a lesson naming one
+# loads instead of failing as "declared but unwired" (W1-W6).
+from lib import lesson_predicates as _lesson_predicates  # noqa: E402,F401

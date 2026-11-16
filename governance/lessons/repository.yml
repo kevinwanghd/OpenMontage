@@ -21,3 +21,23 @@ lessons:
       2026-11-16 the-voicemail-m1 M1 样片：把 Lajos Serly 的弦乐四重奏按 archive.org 条目名
       "A Lifetime of Song" 误标为 piano 并铺在克制对白下，用户直接判定"音乐和内容根本就不配"，
       成片音频重做，licenses.json 与 decision_log 均需追溯修正。
+  - id: shortdrama.subtitle.timing_vs_speech
+    reason_code: SUBTITLE_MISALIGN
+    enforcement: hard
+    status: confirmed
+    applies_to_stages: [assembly, delivery]
+    predicate:
+      kind: subtitle_timing_matches_speech
+      tolerance_s: 0.35
+      gap_s: 0.15
+    regression_fixture: tests/fixtures/lessons/m1_subtitle_early.json
+    trigger: "烧录字幕前 / delivery preflight"
+    risk: >
+      字幕与实测语音区间错位：观众先看到字、后听到声，或语音尾部没有字幕覆盖。
+      这类错位在静音钩子句和底噪段尤其容易漏检，肉眼看时间轴看不出来。
+    fix: >
+      1) 先跑语音区间双路实测（silencedetect + RMS/F0），不要用 ASR 时间戳直接当语音区间；
+      2) 按句计算 lead/lag/gap，任一超阈值就重排该句字幕；
+      3) 检测不到语音区间（BGM 过响或纯静音）时不得默认通过，需人工确认。
+    regression: >
+      2026-11-16 the-voicemail-m1 M1 第 7 句：字幕比语音提前 1.36s，语音尾部 0.75s 无字幕覆盖。
