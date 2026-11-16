@@ -11,6 +11,8 @@ Mirrors tests/tools/test_openai_image_multi_output.py, which covers the same
 defect class in the OpenAI provider.
 """
 
+from urllib.parse import urlparse
+import re
 import base64
 import sys
 import types
@@ -45,7 +47,9 @@ def imagen_tool(monkeypatch):
     fake = types.ModuleType("requests")
 
     def _post(url, headers=None, json=None, timeout=None):
-        assert "aiplatform.googleapis.com" in url
+        host = urlparse(url).hostname or ""
+        # 区域端点形如 us-central1-aiplatform.googleapis.com：域名前可能是 "." 或 "-"
+        assert re.search(r"(^|[.-])aiplatform\.googleapis\.com$", host), host
         assert "x-goog-api-key" not in headers
         return _FakeResponse(json["parameters"]["sampleCount"])
 

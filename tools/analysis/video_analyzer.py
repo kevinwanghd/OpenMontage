@@ -11,6 +11,8 @@ the structured data; the agent provides the visual interpretation.
 
 from __future__ import annotations
 
+from tools.analysis.url_kind import host_matches, host_of, platform_of
+
 import json
 import time
 from pathlib import Path
@@ -128,20 +130,19 @@ class VideoAnalyzer(BaseTool):
         """Check if source is a URL vs local file."""
         return source.startswith(("http://", "https://", "www."))
 
+    # 本工具只区分这几种来源，其余一律归 other_url（与改造前的返回值集合一致）
+    _KNOWN_PLATFORMS = {"shorts", "youtube", "instagram", "tiktok"}
+
     def _detect_platform(self, source: str) -> str:
-        """Detect platform from URL."""
+        """Detect platform from URL (hostname 精确匹配，见 tools/analysis/url_kind)."""
         if not self._is_url(source):
             return "local_file"
-        s = source.lower()
-        if "youtube.com/shorts" in s:
-            return "shorts"
-        if "youtube.com" in s or "youtu.be" in s:
-            return "youtube"
-        if "instagram.com" in s:
-            return "instagram"
-        if "tiktok.com" in s:
-            return "tiktok"
-        return "other_url"
+        platform = platform_of(source)
+        # 保持改造前行为：本模块只把 youtube.com/shorts 判为 shorts，
+        # youtu.be/shorts/... 一律算 youtube（video_downloader 的规则不同，不要混用）
+        if platform == "shorts" and not host_matches(host_of(source), "youtube.com"):
+            platform = "youtube"
+        return platform if platform in self._KNOWN_PLATFORMS else "other_url"
 
     def _is_youtube(self, platform: str) -> bool:
         return platform in ("youtube", "shorts")
