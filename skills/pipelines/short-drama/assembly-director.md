@@ -69,6 +69,23 @@ carried unchanged from the approved proposal; a runtime change needs a new
 All four resolve through the active profile. Announce the chosen provider and
 model before generation.
 
+## Sub-stages
+
+The manifest predeclares three assembly sub-stages, run in this order as part
+of every v2.5 assembly:
+
+1. `rough_cut` - cut approved clips to the beat map; review pacing, dead air,
+   and hook/re-hook before sound design.
+2. `sound_design` - choose music only from `music_library/`, mix dialogue first,
+   measure loudness to target.
+3. `grade_finish` - colour-grade consistency across shots plus subtitle visuals
+   (keyword emphasis/motion).
+
+The sub-stage `condition` keys in the manifest are declarative labels for
+workflow views, not runtime switches: the director runs all three phases
+whether or not any evaluator has registered those keys. Skipping a phase
+because its condition was absent is a bug, not a valid degraded path.
+
 ## Gates
 
 Checkpoint required, `human_approval_default: true` (review point 8). Present
