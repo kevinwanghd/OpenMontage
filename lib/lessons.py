@@ -8,10 +8,13 @@ predicate primitive, or omits a required field makes loading fail loudly instead
 of being skipped.
 
 Hard vs soft (v2.6 D24):
-- ``hard`` lessons are machine-checkable invariants. They must name a registered
-  reason code, a predicate, and a regression fixture taken from a real incident.
+- ``hard`` lessons are machine-checkable invariants. They must name a predicate
+  and a regression fixture taken from a real incident.
 - ``soft`` lessons capture judgement calls (taste, preference). They may omit
-  the reason code and predicate; they never block a stage.
+  the predicate; they never block a stage.
+- ``reason_code`` is optional on both. It is filled in only when the failure
+  class also exists in the review vocabulary (``lib/review.py``), so a lesson
+  never forces a phantom code into ``REASON_CODES``.
 """
 from __future__ import annotations
 
@@ -30,7 +33,10 @@ ENFORCEMENTS = frozenset({"soft", "hard"})
 STATUSES = frozenset({"pending", "confirmed", "promoted", "rejected"})
 
 REQUIRED_FIELDS = ("id", "enforcement", "trigger", "risk", "fix", "regression", "status")
-HARD_REQUIRED_FIELDS = ("reason_code", "predicate", "regression_fixture")
+# A lesson's identity is its predicate, not a review reason code. `reason_code`
+# stays optional for every lesson (v2.6 §2, 2026-11-16): codes are only
+# registered for failure classes that actually appear in review decisions.
+HARD_REQUIRED_FIELDS = ("predicate", "regression_fixture")
 
 DEFAULT_LESSONS_PATH = (
     Path(__file__).resolve().parents[1] / "governance" / "lessons" / "repository.yml"
