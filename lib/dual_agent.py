@@ -373,27 +373,40 @@ class DualAgent:
         critic_tokens: int,
         task: str,
     ) -> None:
-        """DUAL-06/08: persist the REJECT and the pair cost (best effort)."""
+        """DUAL-06/08: persist the REJECT and the pair cost (best effort).
+
+        The verdict is already trustworthy when we get here, so a ledger
+        failure must not discard the run: warn and keep going.
+        """
+        import warnings
+
         from lib import dual_rejections
 
-        if not result.verdict.passed:
-            dual_rejections.record_rejection(
+        try:
+            if not result.verdict.passed:
+                dual_rejections.record_rejection(
+                    self.episode_dir,
+                    role=self.role,
+                    reason_code="OTHER",
+                    findings=[finding.as_dict() for finding in result.verdict.findings],
+                    model=self.pair.producer.model,
+                    prompt=task,
+                )
+            dual_rejections.record_pair_cost(
                 self.episode_dir,
                 role=self.role,
-                reason_code="OTHER",
-                findings=[finding.as_dict() for finding in result.verdict.findings],
-                model=self.pair.producer.model,
-                prompt=task,
+                producer_model=self.pair.producer.model,
+                critic_model=self.pair.critic.model,
+                producer_tokens=producer_tokens,
+                critic_tokens=critic_tokens,
+                # Token counts are real when the gateway reports usage; the
+                # cash figure stays with the billing-aware caller (DUAL-08).
+                producer_cost_usd=0.0,
+                critic_cost_usd=0.0,
             )
-        dual_rejections.record_pair_cost(
-            self.episode_dir,
-            role=self.role,
-            producer_model=self.pair.producer.model,
-            critic_model=self.pair.critic.model,
-            producer_tokens=producer_tokens,
-            critic_tokens=critic_tokens,
-            # Token counts are real when the gateway reports usage; the cash
-            # figure stays with the billing-aware caller (DUAL-08).
-            producer_cost_usd=0.0,
-            critic_cost_usd=0.0,
-        )
+        except (OSError, ValueError) as error:
+            warnings.warn(
+                f"dual-agent ledger write failed for role '{self.role}': {error}; "
+                "the verdict stands but rejections/cost are not recorded",
+                stacklevel=2,
+            )

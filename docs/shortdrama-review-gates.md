@@ -32,3 +32,19 @@ store.decide("r1", ReviewDecision(action="accept", gate_type="creative"))
 
 字段定义见 `schemas/artifacts/review_decision.schema.json`（`decision.gate_type`，
 枚举 `creative|technical|null`）。
+## CLI
+
+```powershell
+# 技术门 PASS（创意门的前置）
+om review decide r1 --action accept --gate-type technical
+# 创意门批准（须已有技术门 PASS，undo 后重开）
+om review decide r1 --action accept --gate-type creative
+
+# delivery 终审：三判定齐备才记录 DIR-05 创意 full_watch（绑定当前版本哈希）
+om review watch ep01 --stage delivery --verify `
+  --hook "opens on the unanswered call" `
+  --emotion "guilt lands on the last line" `
+  --pacing "two-beat hold before the cut"
+```
+
+缺任一判定即拒；版本变更后旧终审自动失效（`full_watch_ok` 判定）。
