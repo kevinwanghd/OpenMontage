@@ -252,6 +252,10 @@ class ReviewStore:
                 fh.write(json.dumps(record, ensure_ascii=False) + "\n")
         return record
 
+    def records(self) -> list[dict[str, Any]]:
+        """Public append-only log view for gate audits (read-only copy)."""
+        return self._records()
+
     def _records(self) -> list[dict[str, Any]]:
         if not self.path.exists():
             return []
