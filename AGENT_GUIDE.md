@@ -586,7 +586,16 @@ Stage contract rules:
 
 ## Reviewer Protocol
 
-The reviewer is a meta skill (`skills/meta/reviewer.md`) — advisory, never directly blocks progression.
+The reviewer is a meta skill (`skills/meta/reviewer.md`). By default it is advisory and does not block progression — **except where a pipeline manifest declares blocking semantics, which wins.**
+
+**Short-drama exception (binding).** `pipeline_defs/short-drama.yaml` states that an accepted clip must carry a reviewer PASS and that a REJECT is regenerated, never accepted. For that pipeline the reviewer is **blocking**:
+
+- Every finding carries `severity: P0 | P1`. P0 = the shot cannot be used (no lipsync when dialogue exists, wrong voice, identity mismatch, missing required action). P1 = should fix, does not block.
+- A stage with any P0 finding **cannot be written as `status='completed'`** — `lib/checkpoint.py` raises `REVIEW VIOLATION`. This is code, not advice.
+- P1-only results proceed and are recorded as warnings.
+- The generic two-round rule does not license shipping with P0: after two failed rounds escalate to the user, never pass a P0 through.
+
+Default (all other pipelines):
 
 - Self-review after every stage execution, before checkpointing.
 - Load `review_focus` items from the pipeline manifest for the current stage.
