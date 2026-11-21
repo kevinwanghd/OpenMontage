@@ -4,49 +4,164 @@
   "title": "Scene Plan",
   "description": "Ordered scene list produced by the Scene Planner agent.",
   "type": "object",
-  "required": ["version", "scenes"],
+  "required": [
+    "version",
+    "scenes"
+  ],
   "properties": {
-    "version": { "type": "string", "const": "1.0" },
-    "style_playbook": { "type": "string", "description": "Name of the active style playbook" },
+    "version": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "style_playbook": {
+      "type": "string",
+      "description": "Name of the active style playbook"
+    },
     "scenes": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "type", "description", "start_seconds", "end_seconds"],
+        "required": [
+          "id",
+          "type",
+          "description",
+          "start_seconds",
+          "end_seconds"
+        ],
         "properties": {
-          "id": { "type": "string" },
+          "id": {
+            "type": "string"
+          },
           "type": {
             "type": "string",
-            "enum": ["talking_head", "broll", "animation", "character_scene", "diagram", "text_card", "transition", "generated", "screen_recording"]
+            "enum": [
+              "talking_head",
+              "broll",
+              "animation",
+              "character_scene",
+              "diagram",
+              "text_card",
+              "transition",
+              "generated",
+              "screen_recording"
+            ]
           },
-          "description": { "type": "string" },
-          "start_seconds": { "type": "number", "minimum": 0 },
-          "end_seconds": { "type": "number", "minimum": 0 },
-          "script_section_id": { "type": "string" },
-          "framing": { "type": "string" },
-          "movement": { "type": "string" },
-          "transition_in": { "type": "string" },
-          "transition_out": { "type": "string" },
-          "overlay_notes": { "type": "string" },
+          "description": {
+            "type": "string"
+          },
+          "start_seconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "end_seconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "script_section_id": {
+            "type": "string"
+          },
+          "framing": {
+            "type": "string"
+          },
+          "movement": {
+            "type": "string"
+          },
+          "transition_in": {
+            "type": "string"
+          },
+          "transition_out": {
+            "type": "string"
+          },
+          "overlay_notes": {
+            "type": "string"
+          },
           "shot_language": {
             "type": "object",
             "description": "Structured cinematography vocabulary for this scene",
             "properties": {
               "shot_size": {
                 "type": "string",
-                "enum": ["extreme_wide", "wide", "medium_wide", "medium", "medium_close", "close_up", "extreme_close_up", "over_shoulder", "insert", "establishing"]
+                "enum": [
+                  "extreme_wide",
+                  "wide",
+                  "medium_wide",
+                  "medium",
+                  "medium_close",
+                  "close_up",
+                  "extreme_close_up",
+                  "over_shoulder",
+                  "insert",
+                  "establishing"
+                ]
               },
               "camera_movement": {
                 "type": "string",
-                "enum": ["static", "pan_left", "pan_right", "tilt_up", "tilt_down", "dolly_in", "dolly_out", "tracking_left", "tracking_right", "crane_up", "crane_down", "handheld", "steadicam", "whip_pan", "orbital", "zoom_in", "zoom_out", "rack_focus"]
+                "enum": [
+                  "static",
+                  "pan_left",
+                  "pan_right",
+                  "tilt_up",
+                  "tilt_down",
+                  "dolly_in",
+                  "dolly_out",
+                  "tracking_left",
+                  "tracking_right",
+                  "crane_up",
+                  "crane_down",
+                  "handheld",
+                  "steadicam",
+                  "whip_pan",
+                  "orbital",
+                  "zoom_in",
+                  "zoom_out",
+                  "rack_focus"
+                ]
               },
-              "lens_mm": { "type": "integer", "enum": [14, 24, 35, 50, 85, 135, 200] },
+              "lens_mm": {
+                "type": "integer",
+                "enum": [
+                  14,
+                  24,
+                  35,
+                  50,
+                  85,
+                  135,
+                  200
+                ]
+              },
               "lighting_key": {
                 "type": "string",
-                "enum": ["high_key", "low_key", "natural", "golden_hour", "blue_hour", "tungsten_warm", "neon", "silhouette", "rim_lit", "volumetric", "overcast_soft"]
+                "enum": [
+                  "high_key",
+                  "low_key",
+                  "natural",
+                  "golden_hour",
+                  "blue_hour",
+                  "tungsten_warm",
+                  "neon",
+                  "silhouette",
+                  "rim_lit",
+                  "volumetric",
+                  "overcast_soft"
+                ]
               },
-              "depth_of_field": { "type": "string", "enum": ["shallow", "medium", "deep"] },
-              "color_temperature": { "type": "string", "enum": ["cool", "neutral", "warm", "mixed"] }
+              "depth_of_field": {
+                "type": "string",
+                "enum": [
+                  "shallow",
+                  "medium",
+                  "deep"
+                ]
+              },
+              "color_temperature": {
+                "type": "string",
+                "enum": [
+                  "cool",
+                  "neutral",
+                  "warm",
+                  "mixed"
+                ]
+              }
             },
             "additionalProperties": false
           },
@@ -56,7 +171,18 @@
           },
           "narrative_role": {
             "type": "string",
-            "enum": ["establish_context", "introduce_subject", "build_tension", "deliver_payload", "transition", "emotional_beat", "evidence", "comparison", "resolution", "call_to_action"],
+            "enum": [
+              "establish_context",
+              "introduce_subject",
+              "build_tension",
+              "deliver_payload",
+              "transition",
+              "emotional_beat",
+              "evidence",
+              "comparison",
+              "resolution",
+              "call_to_action"
+            ],
             "description": "What role this scene plays in the narrative structure"
           },
           "information_role": {
@@ -73,25 +199,42 @@
             "description": "Character-specific acting beats for rigged character animation scenes",
             "items": {
               "type": "object",
-              "required": ["character_id", "action_sequence"],
+              "required": [
+                "character_id",
+                "action_sequence"
+              ],
               "properties": {
-                "character_id": { "type": "string" },
-                "emotion": { "type": "string" },
+                "character_id": {
+                  "type": "string"
+                },
+                "emotion": {
+                  "type": "string"
+                },
                 "action_sequence": {
                   "type": "array",
-                  "items": { "type": "string" },
+                  "items": {
+                    "type": "string"
+                  },
                   "minItems": 1
                 },
-                "dialogue": { "type": "string" },
-                "target": { "type": "string" },
-                "notes": { "type": "string" }
+                "dialogue": {
+                  "type": "string"
+                },
+                "target": {
+                  "type": "string"
+                },
+                "notes": {
+                  "type": "string"
+                }
               },
               "additionalProperties": false
             }
           },
           "texture_keywords": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "Visual texture descriptors: grain, clean, anamorphic, gritty, ethereal, etc."
           },
           "required_assets": {
@@ -99,11 +242,49 @@
             "items": {
               "type": "object",
               "properties": {
-                "type": { "type": "string" },
-                "description": { "type": "string" },
-                "source": { "type": "string", "enum": ["generate", "source", "provided", "record"] }
+                "type": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string",
+                  "enum": [
+                    "generate",
+                    "source",
+                    "provided",
+                    "record"
+                  ]
+                }
               },
-              "required": ["type", "description", "source"]
+              "required": [
+                "type",
+                "description",
+                "source"
+              ]
+            }
+          },
+          "generation_block_seconds": {
+            "type": "number",
+            "description": "GATE-05: seconds rendered by one model call (8-30). Continuity within a block is free; cut it into edit_beats."
+          },
+          "edit_beats": {
+            "type": "array",
+            "description": "GATE-05: how the generation block is cut (2-8s each). Must sum to generation_block_seconds.",
+            "items": {
+              "type": "object",
+              "required": [
+                "duration_s"
+              ],
+              "properties": {
+                "duration_s": {
+                  "type": "number"
+                },
+                "label": {
+                  "type": "string"
+                }
+              }
             }
           }
         },
@@ -116,34 +297,84 @@
       "description": "Drama shot layer (short-drama pipeline). Optional additive layer; legacy pipelines use scenes[] only. Each shot is a single timed camera setup.",
       "items": {
         "type": "object",
-        "required": ["shot_id", "duration_s"],
+        "required": [
+          "shot_id",
+          "duration_s"
+        ],
         "properties": {
-          "shot_id": { "type": "string" },
-          "beat_id": { "type": "string" },
-          "duration_s": { "type": "number", "minimum": 0 },
-          "shot_language": { "$ref": "#/$defs/shot_language" },
-          "single_action": { "type": "string", "description": "One unique action per shot" },
+          "shot_id": {
+            "type": "string"
+          },
+          "beat_id": {
+            "type": "string"
+          },
+          "duration_s": {
+            "type": "number",
+            "minimum": 0
+          },
+          "shot_language": {
+            "$ref": "#/$defs/shot_language"
+          },
+          "single_action": {
+            "type": "string",
+            "description": "One unique action per shot"
+          },
           "dialogue": {
             "type": "object",
-            "required": ["speaker", "text"],
+            "required": [
+              "speaker",
+              "text"
+            ],
             "properties": {
-              "speaker": { "type": "string", "description": "character_id" },
-              "text": { "type": "string" },
-              "duration_s": { "type": "number", "minimum": 0 }
+              "speaker": {
+                "type": "string",
+                "description": "character_id"
+              },
+              "text": {
+                "type": "string"
+              },
+              "duration_s": {
+                "type": "number",
+                "minimum": 0
+              }
             },
             "additionalProperties": false
           },
-          "visual_evidence": { "type": "string" },
-          "hook_candidate": { "type": "boolean", "default": false },
-          "reference_character_ids": { "type": "array", "items": { "type": "string" } },
-          "reference_scene_ids": { "type": "array", "items": { "type": "string" } },
-          "needs_lipsync": { "type": "boolean", "default": false },
-          "candidates": { "type": "integer", "minimum": 1, "default": 1 }
+          "visual_evidence": {
+            "type": "string"
+          },
+          "hook_candidate": {
+            "type": "boolean",
+            "default": false
+          },
+          "reference_character_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "reference_scene_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "needs_lipsync": {
+            "type": "boolean",
+            "default": false
+          },
+          "candidates": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 1
+          }
         },
         "additionalProperties": false
       }
     },
-    "metadata": { "type": "object" }
+    "metadata": {
+      "type": "object"
+    }
   },
   "$defs": {
     "shot_language": {
@@ -152,19 +383,87 @@
       "properties": {
         "shot_size": {
           "type": "string",
-          "enum": ["extreme_wide", "wide", "medium_wide", "medium", "medium_close", "close_up", "extreme_close_up", "over_shoulder", "insert", "establishing"]
+          "enum": [
+            "extreme_wide",
+            "wide",
+            "medium_wide",
+            "medium",
+            "medium_close",
+            "close_up",
+            "extreme_close_up",
+            "over_shoulder",
+            "insert",
+            "establishing"
+          ]
         },
         "camera_movement": {
           "type": "string",
-          "enum": ["static", "pan_left", "pan_right", "tilt_up", "tilt_down", "dolly_in", "dolly_out", "tracking_left", "tracking_right", "crane_up", "crane_down", "handheld", "steadicam", "whip_pan", "orbital", "zoom_in", "zoom_out", "rack_focus"]
+          "enum": [
+            "static",
+            "pan_left",
+            "pan_right",
+            "tilt_up",
+            "tilt_down",
+            "dolly_in",
+            "dolly_out",
+            "tracking_left",
+            "tracking_right",
+            "crane_up",
+            "crane_down",
+            "handheld",
+            "steadicam",
+            "whip_pan",
+            "orbital",
+            "zoom_in",
+            "zoom_out",
+            "rack_focus"
+          ]
         },
-        "lens_mm": { "type": "integer", "enum": [14, 24, 35, 50, 85, 135, 200] },
+        "lens_mm": {
+          "type": "integer",
+          "enum": [
+            14,
+            24,
+            35,
+            50,
+            85,
+            135,
+            200
+          ]
+        },
         "lighting_key": {
           "type": "string",
-          "enum": ["high_key", "low_key", "natural", "golden_hour", "blue_hour", "tungsten_warm", "neon", "silhouette", "rim_lit", "volumetric", "overcast_soft"]
+          "enum": [
+            "high_key",
+            "low_key",
+            "natural",
+            "golden_hour",
+            "blue_hour",
+            "tungsten_warm",
+            "neon",
+            "silhouette",
+            "rim_lit",
+            "volumetric",
+            "overcast_soft"
+          ]
         },
-        "depth_of_field": { "type": "string", "enum": ["shallow", "medium", "deep"] },
-        "color_temperature": { "type": "string", "enum": ["cool", "neutral", "warm", "mixed"] }
+        "depth_of_field": {
+          "type": "string",
+          "enum": [
+            "shallow",
+            "medium",
+            "deep"
+          ]
+        },
+        "color_temperature": {
+          "type": "string",
+          "enum": [
+            "cool",
+            "neutral",
+            "warm",
+            "mixed"
+          ]
+        }
       },
       "additionalProperties": false
     }
