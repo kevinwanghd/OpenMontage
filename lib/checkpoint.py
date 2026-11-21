@@ -252,6 +252,56 @@ def init_project(
     return project_dir
 
 
+def _review_blocking(pipeline_type: Optional[str]) -> bool:
+    """True when the pipeline manifest declares blocking reviewer semantics."""
+    if not pipeline_type or pipeline_type == "unknown":
+        return False
+    from lib.pipeline_loader import load_pipeline_readonly
+    try:
+        manifest = load_pipeline_readonly(pipeline_type)
+    except FileNotFoundError:
+        return False
+    except Exception as exc:
+        # A present-but-malformed manifest must not crash every checkpoint
+        # write for that pipeline. Fall back to the advisory default, matching
+        # _stage_requires_approval, but keep the degradation visible.
+        import logging
+        logging.getLogger(__name__).warning(
+            "Review policy unavailable for pipeline %r (%s) — treating the "
+            "reviewer as advisory because the manifest failed to load.",
+            pipeline_type,
+            exc,
+        )
+        return False
+    return manifest.get("review_blocking") is True
+
+
+def _p0_review_findings(review: Optional[dict]) -> list[dict]:
+    """P0 findings carried by a review payload (v2.7 GATE-01).
+
+    Accepts either a flat ``findings`` list or the ``blocking``/``warnings``
+    split that ``shortdrama.qa`` emits, so both shapes go through one gate.
+    A finding counts as P0 when its severity says so; entries with no severity
+    are treated as P1 — the gate must not invent blockers out of legacy data,
+    but the producer (qa / reviewer) is required to stamp severity.
+    """
+    if not isinstance(review, dict):
+        return []
+    candidates: list = []
+    for key in ("findings", "blocking", "warnings", "issues"):
+        value = review.get(key)
+        if isinstance(value, list):
+            candidates.extend(value)
+    p0: list[dict] = []
+    for item in candidates:
+        if not isinstance(item, dict):
+            continue
+        severity = str(item.get("severity") or "").strip().upper()
+        if severity == "P0":
+            p0.append(item)
+    return p0
+
+
 def _stage_requires_approval(pipeline_type: Optional[str], stage: str) -> Optional[bool]:
     """Read human_approval_default for a stage from its pipeline manifest.
 
@@ -496,6 +546,25 @@ def write_checkpoint(
                 f"user, END YOUR TURN, and only after the user approves "
                 f"re-write with status='completed', human_approved=True."
             )
+
+    # --- P0 review enforcement (short-drama v2.7 GATE-01) ---
+    # The manifest already promised "a REJECT verdict is regenerated, never
+    # accepted"; until now nothing enforced it, so a clip with no lipsync or a
+    # female character voiced by a male track could still reach `completed`.
+    # A P0 finding is not a judgement call to be weighed against a deadline:
+    # the stage cannot enter its formal state while one exists.
+    # Blocking is a property of the pipeline, not of finding severity alone:
+    # AGENT_GUIDE keeps the reviewer advisory everywhere except where a manifest
+    # declares blocking semantics. Applying it globally would freeze every other
+    # pipeline the first time a reviewer writes a P0.
+    p0 = _p0_review_findings(review) if _review_blocking(pipeline_type) else []
+    if p0 and status == "completed":
+        raise CheckpointValidationError(
+            f"REVIEW VIOLATION: stage {stage!r} has {len(p0)} P0 finding(s) and "
+            f"cannot be written as status='completed'. First P0: "
+            f"{p0[0].get('issue') or p0[0].get('title') or p0[0]}. Fix or "
+            f"regenerate, then re-review; P1 findings alone do not block."
+        )
 
     _enforce_stage_prerequisites(
         pipeline_dir,

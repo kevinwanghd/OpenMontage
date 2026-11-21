@@ -196,6 +196,8 @@ def review(
     issues += visual["blocking"]
     warnings += visual["warnings"]
 
+    issues = _tag(issues, "P0")
+    warnings = _tag(warnings, "P1")
     score = max(0, 100 - 20 * len(issues) - 5 * len(warnings))
     return {
         "stage": stage,
@@ -222,12 +224,28 @@ def review_visual(project_dir: Path) -> dict[str, Any]:
         return {"blocking": [], "warnings": [
             {"issue": "visual review not run", "evidence": VISUAL_VERDICT_FILE,
              "fix": "run the shortdrama-reviewer agent and persist its verdict"}]}
-    blocking = data.get("blocking") or []
-    warnings = data.get("warnings") or []
+    blocking = _tag(data.get("blocking"), "P0")
+    warnings = _tag(data.get("warnings"), "P1")
     if data.get("verdict") == "reject" and not blocking:
         blocking = [{"issue": "reviewer rejected without detail",
-                     "evidence": "verdict=reject", "fix": "inspect reviewer notes"}]
+                     "evidence": "verdict=reject", "fix": "inspect reviewer notes",
+                     "severity": "P0"}]
     return {"blocking": blocking, "warnings": warnings}
+
+
+def _tag(entries: Any, severity: str) -> list[dict[str, Any]]:
+    """Stamp a severity on each finding so the checkpoint gate can act on it.
+
+    Without an explicit severity the gate can only count findings, which is how
+    a P0 (mouth never moves, wrong voice) and a P1 (subtitle 40px too low) end
+    up with the same weight.
+    """
+    tagged: list[dict[str, Any]] = []
+    for entry in entries or []:
+        item = dict(entry) if isinstance(entry, dict) else {"issue": str(entry)}
+        item.setdefault("severity", severity)
+        tagged.append(item)
+    return tagged
 
 
 def _load(path: Path) -> Optional[dict[str, Any]]:
