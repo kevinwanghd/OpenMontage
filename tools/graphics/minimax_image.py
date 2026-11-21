@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import io
 import os
 import time
 from pathlib import Path
@@ -170,6 +171,42 @@ class MiniMaxImage(BaseTool):
         ]
 
     @staticmethod
+    def _inline_reference_file(value: str) -> str:
+        """Turn a local reference image into a data URI.
+
+        The API resolves ``image_file`` server-side and rejects anything that
+        looks local ("disallowed image url: localhost or private address"), so a
+        filesystem path can never work. Inlining the bytes is the only option
+        that does not require hosting the character sheet publicly.
+        """
+        if value.startswith(("http://", "https://", "data:")):
+            return value
+        path = Path(value)
+        if not path.is_file():
+            return value
+        from PIL import Image
+
+        with Image.open(path) as image:
+            image = image.convert("RGB")
+            image.thumbnail((1024, 1024))
+            buffer = io.BytesIO()
+            image.save(buffer, format="JPEG", quality=90)
+        encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+        return f"data:image/jpeg;base64,{encoded}"
+
+    @classmethod
+    def _normalise_subject_references(cls, references: Any) -> Any:
+        if not isinstance(references, list):
+            return references
+        normalised = []
+        for reference in references:
+            if isinstance(reference, dict) and isinstance(reference.get("image_file"), str):
+                reference = dict(reference)
+                reference["image_file"] = cls._inline_reference_file(reference["image_file"])
+            normalised.append(reference)
+        return normalised
+
+    @staticmethod
     def _build_payload(inputs: dict[str, Any]) -> dict[str, Any]:
         model = inputs.get("model", DEFAULT_MODEL)
         if model not in MODELS:
@@ -193,8 +230,11 @@ class MiniMaxImage(BaseTool):
             "n": inputs.get("n", 1),
             "prompt_optimizer": inputs.get("prompt_optimizer", False),
         }
+        if inputs.get("subject_reference") is not None:
+            payload["subject_reference"] = MiniMaxImage._normalise_subject_references(
+                inputs["subject_reference"]
+            )
         for field in (
-            "subject_reference",
             "aspect_ratio",
             "width",
             "height",
