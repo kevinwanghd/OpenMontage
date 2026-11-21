@@ -554,6 +554,27 @@ def write_checkpoint(
             f"regenerate, then re-review; P1 findings alone do not block."
         )
 
+    # --- Artifact boundary gate (short-drama v2.7 GATE-02) ---
+    # Checked here, not in the driver, because the driver only validates what it
+    # executed itself: generating an asset by calling a tool directly used to
+    # skip every check silently.
+    if (
+        pipeline_type == "short-drama"
+        and status == "completed"
+        and stage in ("keyframe", "shot_gen", "assembly")
+    ):
+        from lib.artifact_gate import validate as _validate_artifacts
+
+        report = _validate_artifacts(Path(pipeline_dir) / project_id)
+        if report["blocking"]:
+            first = report["blocking"][0]
+            raise CheckpointValidationError(
+                f"ARTIFACT VIOLATION: stage {stage!r} has "
+                f"{len(report['blocking'])} unusable artifact(s). First: "
+                f"{first.get('asset') or first.get('path') or '?'} — "
+                f"{first.get('issue')} ({first.get('evidence') or 'no evidence'})"
+            )
+
     _enforce_stage_prerequisites(
         pipeline_dir,
         project_id,
