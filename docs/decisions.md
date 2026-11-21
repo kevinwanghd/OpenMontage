@@ -74,3 +74,11 @@
 - **边界**：Python 只认 `severity == "P0"` 这一个已标注字段；不得内联质量阈值、维度或判定规则。无 severity 的历史数据一律放行（向后兼容，有测试）。
 - **回退**：删除 `write_checkpoint` 中 `_p0_review_findings` 的调用即回到旧行为；无数据迁移。
 - 由来：PR #105 ai-review 按旧规则判 FAIL，用户裁决保留该门禁并在此记录例外；处理程序参照 PR #102。
+
+## 2026-11-21 产物边界校验与「Python 只做工具」边界（CARD-G02）
+
+- **冲突**：`ops/review-points.md` 要求审核决策留在 Agent 层；PRD v2.7 GATE-02 要求在 checkpoint 写入时校验 `asset_manifest` 声明的产物。PR #108 的 AI 审查据此判 FAIL。
+- **裁决**：沿用 2026-11-21 GATE-01 的同一裁决。规则全部来自 manifest 与角色卡（provider/model/sha256/voice_id/character_id），Python 只做逐字段比对：文件是否存在、哈希是否一致、`voice_id` 是否等于角色卡登记值。代码不新增策略、不内联阈值、不做质量评价。
+- **边界**：只对 `pipeline_type == "short-drama"` 且 `status == "completed"` 的 `keyframe/shot_gen/assembly` 生效；未声明 `provenance_version` 的旧清单只告警。
+- **回退**：删除 `write_checkpoint` 中 `_validate_artifacts` 的调用即回到旧行为。
+- **待确认**：本条为用户对 GATE-01 裁决的同构延伸，需用户追认；若驳回，则应改为只在 Agent 层校验。
