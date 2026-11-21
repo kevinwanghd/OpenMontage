@@ -14,10 +14,10 @@ import pytest
 from lib import evidence_pack
 
 
-def _pack(tmp_path, shot="m1_002", *, frames=12, include_frames=True,
+def _pack(tmp_path, shot="m1_002", *, episode="ep01", frames=12, include_frames=True,
           include_audio=True, include_transcript=True, bind=True):
     project = tmp_path / "proj"
-    directory = evidence_pack.pack_dir(project, shot)
+    directory = evidence_pack.pack_dir(project, shot, episode=episode)
     (directory / "frames").mkdir(parents=True, exist_ok=True)
     (directory / "contact_sheet.jpg").write_bytes(b"sheet")
     if include_frames:
@@ -132,4 +132,11 @@ class TestQaIntegration:
         from shortdrama import qa
         project = self._project(tmp_path, required=False)
         report = qa.review(project, "shot_gen", probe=lambda p: None)
+        assert not any("evidence pack" in b["issue"] for b in report["blocking"])
+
+    def test_pack_in_non_default_episode_is_found(self, tmp_path):
+        from shortdrama import qa
+        project = self._project(tmp_path, required=True)
+        _pack(tmp_path, episode="ep02")
+        report = qa.review(project, "shot_gen", episode="ep02", probe=lambda p: None)
         assert not any("evidence pack" in b["issue"] for b in report["blocking"])

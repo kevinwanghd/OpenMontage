@@ -185,7 +185,8 @@ def review(
             for shot in scene_plan.get("shots") or []:
                 if not isinstance(shot, dict) or not shot.get("dialogue"):
                     continue
-                pack = evidence_pack.validate(project_dir, str(shot.get("shot_id")))
+                pack = evidence_pack.validate(
+                    project_dir, str(shot.get("shot_id")), episode=episode)
                 issues += pack["blocking"]
                 warnings += pack["warnings"]
 
