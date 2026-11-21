@@ -38,7 +38,7 @@ def _write(tmp_path, review, status="completed"):
         "script",
         status,
         artifacts={"script": _script()},
-        pipeline_type="animated-explainer",
+        pipeline_type="short-drama",
         human_approved=True,
         review=review,
     )
@@ -54,7 +54,7 @@ def _assert_not_review_blocked(tmp_path, review, status="completed"):
             "script",
             status,
             artifacts={"script": _script()},
-            pipeline_type="animated-explainer",
+            pipeline_type="short-drama",
             human_approved=True,
             review=review,
         )
@@ -148,3 +148,18 @@ class TestDocumentsAgree:
         manifest = (ROOT / "pipeline_defs" / "short-drama.yaml").read_text(encoding="utf-8")
         assert "shortdrama-reviewer PASS verdict" in manifest
         assert "never accepted" in manifest
+
+class TestPipelineScoping:
+    """Blocking must be declared by the pipeline, not applied globally."""
+
+    def test_short_drama_declares_blocking(self):
+        from lib.checkpoint import _review_blocking
+        assert _review_blocking("short-drama") is True
+
+    def test_other_pipelines_stay_advisory(self):
+        from lib.checkpoint import _review_blocking
+        assert _review_blocking("animated-explainer") is False
+
+    def test_unknown_pipeline_is_not_blocking(self):
+        from lib.checkpoint import _review_blocking
+        assert _review_blocking(None) is False

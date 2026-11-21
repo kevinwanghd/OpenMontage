@@ -12,6 +12,9 @@ description: >
 category: custom
 stability: beta
 default_checkpoint_policy: manual_all
+# v2.7 GATE-01: a P0 reviewer finding blocks `completed` for this pipeline.
+# Without this declaration the reviewer stays advisory (AGENT_GUIDE).
+review_blocking: true
 
 extensions:
   custom_scripts: true
