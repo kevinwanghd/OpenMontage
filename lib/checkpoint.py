@@ -261,6 +261,18 @@ def _review_blocking(pipeline_type: Optional[str]) -> bool:
         manifest = load_pipeline_readonly(pipeline_type)
     except FileNotFoundError:
         return False
+    except Exception as exc:
+        # A present-but-malformed manifest must not crash every checkpoint
+        # write for that pipeline. Fall back to the advisory default, matching
+        # _stage_requires_approval, but keep the degradation visible.
+        import logging
+        logging.getLogger(__name__).warning(
+            "Review policy unavailable for pipeline %r (%s) — treating the "
+            "reviewer as advisory because the manifest failed to load.",
+            pipeline_type,
+            exc,
+        )
+        return False
     return manifest.get("review_blocking") is True
 
 

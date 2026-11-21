@@ -163,3 +163,19 @@ class TestPipelineScoping:
     def test_unknown_pipeline_is_not_blocking(self):
         from lib.checkpoint import _review_blocking
         assert _review_blocking(None) is False
+
+    def test_corrupt_manifest_does_not_crash_and_is_advisory(self, tmp_path, monkeypatch):
+        """A present-but-malformed manifest must not break checkpoint writes.
+
+        Regression: _review_blocking used to catch only FileNotFoundError, so a
+        YAML/schema error escaped and aborted every completed checkpoint write
+        for that pipeline.
+        """
+        import lib.pipeline_loader as loader
+
+        def _boom(name, defs_dir=None):
+            raise ValueError("malformed manifest")
+
+        monkeypatch.setattr(loader, "load_pipeline_readonly", _boom)
+        review = {"blocking": [{"issue": "no lipsync", "severity": "P0"}]}
+        _assert_not_review_blocked(tmp_path, review)
