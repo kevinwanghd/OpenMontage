@@ -273,7 +273,29 @@ class Driver:
             # v2.6 LESSON-06: hard lessons that will block a stage unless their
             # evidence makes them pass. Still read-only — nothing is evaluated.
             "hard_lessons_pending": self._hard_lessons_pending(),
+            # CARD-E02: stages whose hard lessons have no evidence file yet.
+            # Read-only, like the two fields above — plan never blocks.
+            "lesson_evidence_pending": self._lesson_evidence_pending(),
         }
+
+    def _lesson_evidence_pending(self) -> list[str]:
+        """Stages where a hard lesson applies but its evidence is missing."""
+        from lib import lesson_evidence
+        from lib import lesson_gate, lessons
+
+        try:
+            loaded = lessons.load()
+        except lessons.LessonConfigError:
+            return []
+        project_dir = self.projects_dir / self.project
+        pending: list[str] = []
+        for stage in self.stage_order:
+            if not lesson_gate.applicable_hard_lessons(stage, loaded):
+                continue
+            path = lesson_evidence.evidence_path(project_dir, stage, episode=self.episode)
+            if not path.is_file():
+                pending.append(stage)
+        return pending
 
     def _applicable_lessons(self) -> list[dict[str, Any]]:
         """Lessons whose stage scope touches this pipeline (read-only)."""
@@ -294,6 +316,33 @@ class Driver:
             for lesson in loaded
             if any(lesson.applies_to(stage) for stage in self.stage_order)
         ]
+
+    def _write_lesson_evidence(self, stage: str, stage_entry: dict[str, Any]) -> None:
+        """Persist the evidence hard lessons are judged against (CARD-E01/E02).
+
+        A stage that cannot produce its evidence file BLOCKS: without it,
+        a hard lesson is evaluated on an empty context and can never fail,
+        which is indistinguishable from having no lesson at all.
+        """
+        from lib import lesson_evidence
+
+        project_dir = self.projects_dir / self.project
+        try:
+            evidence = lesson_evidence.collect(project_dir, stage, episode=self.episode)
+            path = lesson_evidence.write(project_dir, stage, evidence,
+                                         episode=self.episode)
+        except (OSError, ValueError) as error:
+            raise self._pause(
+                ErrorCode.BATCH_PRECONDITION_FAILED,
+                f"lesson evidence could not be written for stage '{stage}': "
+                f"{type(error).__name__}: {error}",
+                "fix the source artifact named in the error; a hard lesson "
+                "must never be judged on missing evidence",
+                recovery="do-X-first",
+                side_effects="partial",
+                context={"stage": stage},
+            ) from error
+        stage_entry["lesson_evidence"] = str(path)
 
     def _lesson_context(self, stage: str) -> dict[str, Any]:
         """Evidence a predicate may read. Never fetches or generates anything."""
@@ -612,6 +661,8 @@ class Driver:
             stage_entry["executed"] = any(
                 item.get("executed") for item in stage_entry["slots"]
             )
+            if stage_entry["executed"]:
+                self._write_lesson_evidence(stage, stage_entry)
             if (stage_entry["executed"] and self.qa_enabled
                     and stage in ("shot_gen", "assembly")):
                 from shortdrama import qa
