@@ -169,3 +169,19 @@ class TestWrite:
         with pytest.raises(RuntimeError):
             ev.write(project, "assembly", {"a": 1})
         assert list(target_dir.glob("*.json")) == []
+
+class TestRenderReportLocation:
+    """The driver writes per-episode artifacts; the producer must look there."""
+
+    def test_episode_artifacts_dir_is_searched(self, tmp_path):
+        project = tmp_path / "proj"
+        episode_artifacts = project / "ep01" / "artifacts"
+        episode_artifacts.mkdir(parents=True)
+        (episode_artifacts / "render_report.json").write_text(
+            json.dumps({"audio": {"loudness_lufs": -14.2}}), encoding="utf-8"
+        )
+        assert ev.collect(project, "assembly")["loudness_lufs"] == -14.2
+
+    def test_project_level_fallback_still_works(self, tmp_path):
+        project = _project(tmp_path, report={"audio": {"loudness_lufs": -15.0}})
+        assert ev.collect(project, "assembly")["loudness_lufs"] == -15.0

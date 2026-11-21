@@ -160,7 +160,13 @@ def collect(project_dir: Path | str, stage: str, *, episode: str = "ep01") -> di
             evidence["subtitles"], evidence["speech"]
         )
 
-    report_path = _first_existing(artifacts, RENDER_REPORT_NAMES)
+    # Render reports live beside the episode's other artifacts; older projects
+    # also kept one at project level, so both are checked. Missing here would
+    # silently drop loudness and version binding, disarming two hard lessons.
+    report_path = (
+        _first_existing(project_dir / episode / "artifacts", RENDER_REPORT_NAMES)
+        or _first_existing(artifacts, RENDER_REPORT_NAMES)
+    )
     if report_path is not None:
         report = json.loads(report_path.read_text(encoding="utf-8"))
         audio = report.get("audio") if isinstance(report, dict) else None
