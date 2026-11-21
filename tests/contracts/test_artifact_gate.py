@@ -171,3 +171,17 @@ class TestCheckpointIntegration:
             )
         except Exception as error:  # prerequisites may still fire; not our gate
             assert "ARTIFACT VIOLATION" not in str(error)
+
+class TestManifestRequiredAtCompletion:
+    """A completed generating stage with no manifest is not a pass."""
+
+    def test_missing_manifest_blocks_when_required(self, tmp_path):
+        empty = tmp_path / "proj"
+        empty.mkdir()
+        report = artifact_gate.validate(empty, require_manifest=True)
+        assert report["blocking"][0]["issue"] == "asset manifest missing at completion"
+
+    def test_missing_manifest_is_quiet_for_read_only_callers(self, tmp_path):
+        empty = tmp_path / "proj"
+        empty.mkdir()
+        assert artifact_gate.validate(empty)["blocking"] == []

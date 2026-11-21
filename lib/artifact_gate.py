@@ -161,13 +161,23 @@ def _check_asset(
             })
 
 
-def validate(project_dir: Path | str) -> dict[str, Any]:
-    """Validate every manifest-declared artifact. Returns blocking/warnings."""
+def validate(project_dir: Path | str, *, require_manifest: bool = False) -> dict[str, Any]:
+    """Validate every manifest-declared artifact. Returns blocking/warnings.
+
+    ``require_manifest`` is set by the checkpoint gate: when a generating stage
+    is declared complete, an absent manifest means nothing was registered, so
+    there is nothing to check and nothing to trust. Passing silently there is
+    how a broken `completed` state gets persisted.
+    """
     project_dir = Path(project_dir)
     manifest = _load_json(project_dir / MANIFEST_FILE)
     if manifest is None:
-        # Other gates already fail on a missing manifest; this one stays quiet
-        # so a single missing file is not reported twice.
+        if require_manifest:
+            return {"blocking": [{
+                "issue": "asset manifest missing at completion",
+                "evidence": str(MANIFEST_FILE), "severity": "P0",
+                "fix": "write artifacts/asset_manifest.json before completing the stage",
+            }], "warnings": []}
         return {"blocking": [], "warnings": []}
     if not isinstance(manifest, dict):
         return {"blocking": [{

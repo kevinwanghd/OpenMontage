@@ -565,7 +565,7 @@ def write_checkpoint(
     ):
         from lib.artifact_gate import validate as _validate_artifacts
 
-        report = _validate_artifacts(Path(pipeline_dir) / project_id)
+        report = _validate_artifacts(Path(pipeline_dir) / project_id, require_manifest=True)
         if report["blocking"]:
             first = report["blocking"][0]
             raise CheckpointValidationError(
