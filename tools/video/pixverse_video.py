@@ -1,11 +1,12 @@
+# risk:hardcoded-url reason:"模块文档中给出官方端点供读者核对，实际请求地址始终由 PIXVERSE_BASE_URL 覆盖，文档字符串不参与请求构造" owner:@kevinwanghd reviewed:2026-11-21
 """PixVerse (爱诗科技) video generation provider — official OpenAPI v2.
+
+Base URL defaults to ``https://app-api.pixverseai.cn/openapi/v2``, overridable
+via ``PIXVERSE_BASE_URL`` (the .com deployment is a separate account pool, so
+the endpoint must stay configurable rather than implied).
 
 Contract verified against the live endpoint 2026-11-17 with zero-cost probes
 (invalid-field rejections), not copied from docs:
-
-* Base URL defaults to ``https://app-api.pixverseai.cn/openapi/v2`` and is
-  overridable with ``PIXVERSE_BASE_URL`` (the .com deployment is a different
-  account pool; keep the value in .env rather than hard-coding it).
 * Auth is the ``API-KEY`` header — **not** ``Authorization: Bearer``. Sending a
   Bearer token yields ``API_KEY_REQUIRED``, which is why the header name is a
   declared constant here instead of an implicit convention.
@@ -47,6 +48,7 @@ from tools.base_tool import (
 )
 from tools.video._shared import probe_output
 
+# risk:hardcoded-url reason:"国内站端点是该 provider 的官方默认值，可被 PIXVERSE_BASE_URL 完整覆盖；两站账号池不通用，默认值必须存在且可配置" owner:@kevinwanghd reviewed:2026-11-21
 DEFAULT_BASE_URL = "https://app-api.pixverseai.cn/openapi/v2"
 AUTH_HEADER_ENV = "PIXVERSE_AUTH_HEADER"
 DEFAULT_AUTH_HEADER = "API-KEY"
@@ -289,6 +291,7 @@ class PixVerseVideo(BaseTool):
             return 0.0
         return round(per_second * float(inputs.get("duration") or 5), 4)
 
+    # risk:command-injection reason:"扫描器把方法名 estimate_runtime 中的 Runtime 误判为命令执行；该函数仅返回预估秒数，不含任何进程调用或外部输入拼接" owner:@kevinwanghd reviewed:2026-11-21
     def estimate_runtime(self, inputs: dict[str, Any]) -> float:
         return 180.0
 
