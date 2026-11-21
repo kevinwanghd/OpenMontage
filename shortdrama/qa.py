@@ -176,6 +176,18 @@ def review(
             sub = review_subtitles(assets_dir / SUBTITLE_FILE)
             issues += sub["blocking"]
             warnings += sub["warnings"]
+        # GATE-04: a shot may only be accepted with evidence a reviewer can
+        # actually look at. Opt-in via the scene plan so in-flight projects
+        # whose packs predate this rule keep resuming.
+        if stage == "shot_gen" and scene_plan.get("evidence_pack_required"):
+            from lib import evidence_pack
+
+            for shot in scene_plan.get("shots") or []:
+                if not isinstance(shot, dict) or not shot.get("dialogue"):
+                    continue
+                pack = evidence_pack.validate(project_dir, str(shot.get("shot_id")))
+                issues += pack["blocking"]
+                warnings += pack["warnings"]
 
     # Visual judgement from the reviewer agent, persisted as an artifact so the
     # gate is repeatable without a human re-running the review by hand.
