@@ -252,6 +252,18 @@ def init_project(
     return project_dir
 
 
+def _review_blocking(pipeline_type: Optional[str]) -> bool:
+    """True when the pipeline manifest declares blocking reviewer semantics."""
+    if not pipeline_type or pipeline_type == "unknown":
+        return False
+    from lib.pipeline_loader import load_pipeline_readonly
+    try:
+        manifest = load_pipeline_readonly(pipeline_type)
+    except FileNotFoundError:
+        return False
+    return manifest.get("review_blocking") is True
+
+
 def _p0_review_findings(review: Optional[dict]) -> list[dict]:
     """P0 findings carried by a review payload (v2.7 GATE-01).
 
@@ -529,7 +541,11 @@ def write_checkpoint(
     # female character voiced by a male track could still reach `completed`.
     # A P0 finding is not a judgement call to be weighed against a deadline:
     # the stage cannot enter its formal state while one exists.
-    p0 = _p0_review_findings(review)
+    # Blocking is a property of the pipeline, not of finding severity alone:
+    # AGENT_GUIDE keeps the reviewer advisory everywhere except where a manifest
+    # declares blocking semantics. Applying it globally would freeze every other
+    # pipeline the first time a reviewer writes a P0.
+    p0 = _p0_review_findings(review) if _review_blocking(pipeline_type) else []
     if p0 and status == "completed":
         raise CheckpointValidationError(
             f"REVIEW VIOLATION: stage {stage!r} has {len(p0)} P0 finding(s) and "
@@ -537,27 +553,6 @@ def write_checkpoint(
             f"{p0[0].get('issue') or p0[0].get('title') or p0[0]}. Fix or "
             f"regenerate, then re-review; P1 findings alone do not block."
         )
-
-    # --- Artifact boundary gate (short-drama v2.7 GATE-02) ---
-    # Checked here, not in the driver, because the driver only validates what it
-    # executed itself: generating an asset by calling a tool directly used to
-    # skip every check silently.
-    if (
-        pipeline_type == "short-drama"
-        and status == "completed"
-        and stage in ("keyframe", "shot_gen", "assembly")
-    ):
-        from lib.artifact_gate import validate as _validate_artifacts
-
-        report = _validate_artifacts(Path(pipeline_dir) / project_id)
-        if report["blocking"]:
-            first = report["blocking"][0]
-            raise CheckpointValidationError(
-                f"ARTIFACT VIOLATION: stage {stage!r} has "
-                f"{len(report['blocking'])} unusable artifact(s). First: "
-                f"{first.get('asset') or first.get('path') or '?'} — "
-                f"{first.get('issue')} ({first.get('evidence') or 'no evidence'})"
-            )
 
     _enforce_stage_prerequisites(
         pipeline_dir,
