@@ -1,0 +1,73 @@
+{
+  "description": "回归夹具：2026-11-17 短剧 M1 交付事故。Nora 与 Margaret 都是女性角色，角色卡登记了女声 voice_id，但装配用的是全局默认男声音轨（实测 F0 92-136 Hz）。当时没有任何门禁能发现，因为门禁挂在 driver 执行路径上，而音轨是复用的旧文件。",
+  "character_cards": {
+    "ch_nora": {
+      "version": "1.0",
+      "character_id": "ch_nora",
+      "name": "Nora",
+      "canonical_description": "Late 30s, dark shoulder-length hair, grey knit sweater, canvas duffel bag.",
+      "tts": {"voice_id": "zh_female_xiaohe_uranus_bigtts", "resource_id": "seed-tts-2.0"}
+    },
+    "ch_margaret": {
+      "version": "1.0",
+      "character_id": "ch_margaret",
+      "name": "Margaret",
+      "canonical_description": "Late 60s, silver hair in a low bun, wire glasses, cream knit cardigan.",
+      "tts": {"voice_id": "zh_female_wanwanxiaohe_moon_bigtts", "resource_id": "seed-tts-1.0"}
+    }
+  },
+  "manifests": {
+    "bad_male_voice": {
+      "version": "1.0",
+      "provenance_version": 1,
+      "assets": [
+        {
+          "id": "tts_s2_nora",
+          "type": "audio",
+          "path": "ep01/assets/tts_s2_nora.mp3",
+          "source_tool": "doubao_tts",
+          "scene_id": "m1_002",
+          "provenance": {
+            "provider": "volcengine",
+            "model": "seed-tts-2.0",
+            "sha256": "FILE_HASH",
+            "voice_id": "zh_male_taocan_uranus_bigtts",
+            "character_id": "ch_nora"
+          }
+        }
+      ]
+    },
+    "good_female_voice": {
+      "version": "1.0",
+      "provenance_version": 1,
+      "assets": [
+        {
+          "id": "tts_s2_nora",
+          "type": "audio",
+          "path": "ep01/assets/tts_s2_nora.mp3",
+          "source_tool": "doubao_tts",
+          "scene_id": "m1_002",
+          "provenance": {
+            "provider": "volcengine",
+            "model": "seed-tts-2.0",
+            "sha256": "FILE_HASH",
+            "voice_id": "zh_female_xiaohe_uranus_bigtts",
+            "character_id": "ch_nora"
+          }
+        }
+      ]
+    },
+    "legacy_without_provenance": {
+      "version": "1.0",
+      "assets": [
+        {
+          "id": "tts_s2_nora",
+          "type": "audio",
+          "path": "ep01/assets/tts_s2_nora.mp3",
+          "source_tool": "doubao_tts",
+          "scene_id": "m1_002"
+        }
+      ]
+    }
+  }
+}
