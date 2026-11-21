@@ -154,6 +154,8 @@ auto_merge:
     - scripts/check_tested.py
     - scripts/validate_mr.py
     - scripts/gate_decision.py
+    # AI 审查误报白名单：只能人工经 dismiss_finding.py 落条目，防自我豁免
+    - ops/review-allowlist.yml
   risk_paths:
     low:
       - docs/**

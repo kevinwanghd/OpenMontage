@@ -66,3 +66,11 @@
   - 任何"用 reason_code 索引 `STRATEGIES`"的代码必须先判空；`STRATEGIES` 只覆盖已注册码，缺省不应 KeyError。
   - 已有教训记录不需要改：旧的 `reason_code` 保留生效；新 hard 教训只有在同时登记了审核码时才填。
 - **回退**：把 `reason_code` 加回 `HARD_REQUIRED_FIELDS` 即恢复旧约束；既有数据无需迁移。
+
+## 2026-11-21 P0 审片阻断与「Python 只做工具」边界的裁决（CARD-G01）
+
+- **冲突**：`ops/review-points.md` 要求审核决策留在 Agent 层；PRD v2.7 族⑱ GATE-01 要求在 `lib/checkpoint.py` 写入时拒绝带 P0 finding 的 `completed`。PR #105 的 AI 审查据此判 FAIL。
+- **裁决（用户确认，2026-11-21）**：按 PRD。判定权仍在 Agent/reviewer（`severity: P0|P1` 由审查侧标注），代码侧只拒绝持久化与 P0 矛盾的状态，不产生新策略；与 `human_approved` → GATE VIOLATION 同构，也与 2026-11-16 lesson gate 的裁决同构。
+- **边界**：Python 只认 `severity == "P0"` 这一个已标注字段；不得内联质量阈值、维度或判定规则。无 severity 的历史数据一律放行（向后兼容，有测试）。
+- **回退**：删除 `write_checkpoint` 中 `_p0_review_findings` 的调用即回到旧行为；无数据迁移。
+- 由来：PR #105 ai-review 按旧规则判 FAIL，用户裁决保留该门禁并在此记录例外；处理程序参照 PR #102。

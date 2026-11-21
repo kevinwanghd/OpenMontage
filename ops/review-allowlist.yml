@@ -1,0 +1,6 @@
+- file: lib/review_strategies.py
+  keyword: 编排
+  reason: STRATEGIES 为既有数据驱动策略表（main 上已约20条），新增条目属扩展既有模式，非新增编排逻辑
+  dismissed_by: '@kevinwanghd'
+  date: '2026-11-17'
+  pr: 103
