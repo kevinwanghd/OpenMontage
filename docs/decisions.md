@@ -78,10 +78,11 @@
 ## 2026-11-21 产物边界校验与「Python 只做工具」边界（CARD-G02）
 
 - **冲突**：`ops/review-points.md` 要求审核决策留在 Agent 层；PRD v2.7 GATE-02 要求在 checkpoint 写入时校验 `asset_manifest` 声明的产物。PR #108 的 AI 审查据此判 FAIL。
-- **裁决**：沿用 2026-11-21 GATE-01 的同一裁决。规则全部来自 manifest 与角色卡（provider/model/sha256/voice_id/character_id），Python 只做逐字段比对：文件是否存在、哈希是否一致、`voice_id` 是否等于角色卡登记值。代码不新增策略、不内联阈值、不做质量评价。
+- **裁决（用户确认，2026-11-22）**：沿用 2026-11-21 GATE-01 的同一裁决。规则全部来自 manifest 与角色卡（provider/model/sha256/voice_id/character_id），Python 只做逐字段比对：文件是否存在、哈希是否一致、`voice_id` 是否等于角色卡登记值。代码不新增策略、不内联阈值、不做质量评价。
 - **边界**：只对 `pipeline_type == "short-drama"` 且 `status == "completed"` 的 `keyframe/shot_gen/assembly` 生效；未声明 `provenance_version` 的旧清单只告警。
 - **回退**：删除 `write_checkpoint` 中 `_validate_artifacts` 的调用即回到旧行为。
-- **待确认**：本条为用户对 GATE-01 裁决的同构延伸，需用户追认；若驳回，则应改为只在 Agent 层校验。
+- **确认结论**：本条为用户对 GATE-01 裁决的同构延伸，已于 2026-11-22 经用户追认。理由：Agent 层有 N 个调用入口，且 11-17 事故正是因为绕过 driver 后 QA 整段静默跳过；checkpoint 是阶段推进的唯一必经点，校验放在那里才不可绕过。代价是 Agent 不能再手工放入未登记的产物推进阶段，这是有意的。
+- **新增门的准入判据**：答案能从已声明文件（manifest / 角色卡 / review 结论）查出来 → 放在 checkpoint 边界由 Python 执行；答案需要看片、听声或主观判断 → 留在 Agent/reviewer 层。后续门禁按此判据裁决，不再逐条讨论。
 
 ## 2026-11-22 G03/G05 接线范围（用户确认）
 
