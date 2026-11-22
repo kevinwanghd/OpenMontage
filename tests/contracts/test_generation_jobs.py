@@ -159,3 +159,24 @@ class TestLedgerIntegrity:
         stored = ledger.latest(fp)
         assert stored.parent_job_id == "job-1"
         assert stored.changed_variable == "seed"
+
+class TestQueryMatchesEnforcement:
+    """The query and the gate must never disagree about the same state."""
+
+    @pytest.mark.parametrize("state", ["cancelled", "failed", "rejected", "repair"])
+    def test_settled_states_allow_both(self, ledger, state):
+        fp = _fingerprint()
+        ledger.submit(_record(fp, "job-1"))
+        ledger.transition("job-1", state)
+        assert ledger.resubmission_allowed(fp) is True
+        ledger.submit(_record(fp, "job-2"))
+
+    @pytest.mark.parametrize("state", ["submitted", "processing", "completed", "accepted"])
+    def test_live_states_block_both(self, ledger, state):
+        fp = _fingerprint()
+        ledger.submit(_record(fp, "job-1"))
+        if state != "submitted":
+            ledger.transition("job-1", state)
+        assert ledger.resubmission_allowed(fp) is False
+        with pytest.raises(DuplicateSubmission):
+            ledger.submit(_record(fp, "job-2"))

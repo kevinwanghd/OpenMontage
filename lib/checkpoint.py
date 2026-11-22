@@ -260,7 +260,17 @@ def _review_blocking(pipeline_type: Optional[str]) -> bool:
     try:
         manifest = load_pipeline_readonly(pipeline_type)
     except FileNotFoundError:
-        return False
+        # Fail closed, like _stage_requires_approval: a typo in pipeline_type
+        # must not silently switch the reviewer back to advisory.
+        raise CheckpointValidationError(
+            f"Unknown pipeline_type {pipeline_type!r} — cannot resolve whether "
+            f"the reviewer blocks. Fix the pipeline name."
+        )
+    except Exception as error:
+        raise CheckpointValidationError(
+            f"pipeline manifest for {pipeline_type!r} is unusable "
+            f"({type(error).__name__}: {error}); cannot decide review blocking"
+        ) from error
     return manifest.get("review_blocking") is True
 
 

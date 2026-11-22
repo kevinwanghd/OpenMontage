@@ -123,14 +123,53 @@ def _overlaps(a: dict[str, float], b: dict[str, float]) -> float:
     return max(0.0, min(a["end"], b["end"]) - max(a["start"], b["start"]))
 
 
-def silent_subtitle_lines(
-    subtitles: list[dict[str, float]], speech: list[dict[str, float]]
-) -> list[int]:
-    """Indices (0-based) of cues that no speech interval covers at all."""
-    return [
-        index for index, cue in enumerate(subtitles)
-        if not any(_overlaps(cue, interval) > 0 for interval in speech)
-    ]
+def _load_json(path: Path) -> Optional[Any]:
+    """Read a JSON artifact. Absent is None; present-but-broken raises."""
+    if not path.is_file():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise LessonEvidenceError(f"{path.name}: unreadable ({error})") from error
+
+
+SECTION_ID = re.compile(r"(?:^|[_-])(s\d+)(?:[_-]|\.|$)")
+
+
+def section_offsets(project_dir: Path) -> dict[str, float]:
+    """Section id -> start time on the finished timeline, from the script."""
+    script_path = Path(project_dir) / "artifacts" / "script.json"
+    script = _load_json(script_path)
+    if not isinstance(script, dict):
+        return {}
+    offsets: dict[str, float] = {}
+    for section in script.get("sections") or []:
+        if not isinstance(section, dict):
+            continue
+        section_id = section.get("id")
+        start = section.get("start_seconds")
+        if isinstance(section_id, str) and isinstance(start, (int, float)):
+            offsets[section_id] = float(start)
+    return offsets
+
+
+def silent_section_windows(project_dir: Path) -> list[tuple[float, float]]:
+    """Time windows of sections the script marks as having no dialogue.
+
+    Windows, not indices: subtitle cues exist only for spoken lines, so a
+    section's position in the script is not its position in the cue list.
+    """
+    script = _load_json(Path(project_dir) / "artifacts" / "script.json")
+    if not isinstance(script, dict):
+        return []
+    windows: list[tuple[float, float]] = []
+    for section in script.get("sections") or []:
+        if not isinstance(section, dict) or str(section.get("text") or "").strip():
+            continue
+        start, end = section.get("start_seconds"), section.get("end_seconds")
+        if isinstance(start, (int, float)) and isinstance(end, (int, float)):
+            windows.append((float(start), float(end)))
+    return windows
 
 
 def collect(project_dir: Path | str, stage: str, *, episode: str = "ep01") -> dict[str, Any]:
@@ -148,17 +187,50 @@ def collect(project_dir: Path | str, stage: str, *, episode: str = "ep01") -> di
         if cues:
             evidence["subtitles"] = cues
 
+    # A TTS sidecar's times are relative to that clip, not to the finished cut.
+    # Adding them raw puts every line at 0-2s while the subtitles sit at 5-30s,
+    # which is not a small error: it makes every cue look speechless. Only
+    # sidecars that can be tied to a script section are usable, and each is
+    # shifted by that section's start time.
+    offsets = section_offsets(project_dir)
     speech: list[dict[str, float]] = []
-    if assets.is_dir():
+    mapped_sections: set[str] = set()
+    if assets.is_dir() and offsets:
         for sidecar in sorted(assets.glob(TTS_GLOB)):
-            speech.extend(parse_tts_speech(sidecar))
+            match = SECTION_ID.search(sidecar.name)
+            if not match or match.group(1) not in offsets:
+                continue
+            section_id = match.group(1)
+            if section_id in mapped_sections:
+                raise LessonEvidenceError(
+                    f"{sidecar.name}: more than one TTS sidecar maps to section "
+                    f"{section_id}; cannot tell which track is in the cut"
+                )
+            shift = offsets[section_id]
+            for interval in parse_tts_speech(sidecar):
+                speech.append({
+                    "start": interval["start"] + shift,
+                    "end": interval["end"] + shift,
+                })
+            mapped_sections.add(section_id)
     if speech:
         evidence["speech"] = speech
 
-    if evidence.get("subtitles") and evidence.get("speech"):
-        evidence["silent_lines"] = silent_subtitle_lines(
-            evidence["subtitles"], evidence["speech"]
-        )
+    # `silent_lines` must come from the script, never from "no speech found".
+    # The predicate skips silent lines outright, so inferring them from missing
+    # evidence turns BLOCKED into a vacuous PASS — the exact failure this
+    # producer exists to prevent.
+    silent_windows = silent_section_windows(project_dir)
+    if evidence.get("subtitles") and silent_windows:
+        silent_indices = [
+            index for index, cue in enumerate(evidence["subtitles"])
+            # Fully inside, not merely starting inside: the incident cue began
+            # at 3.64s, inside the 0-5s silent hook, and would have been skipped.
+            if any(start <= cue["start"] and cue["end"] <= end
+                   for start, end in silent_windows)
+        ]
+        if silent_indices:
+            evidence["silent_lines"] = silent_indices
 
     # Render reports live beside the episode's other artifacts; older projects
     # also kept one at project level, so both are checked. Missing here would

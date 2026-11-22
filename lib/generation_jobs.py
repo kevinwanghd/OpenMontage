@@ -38,12 +38,11 @@ SUBMITTED_STATES = frozenset({"submitted", "processing", "completed",
 #: States that mean "we do not know what the provider did".
 UNKNOWN_STATES = frozenset({"unknown"})
 #: States that legitimately allow another attempt.
-RETRYABLE_STATES = frozenset({"failed", "rejected", "repair"})
-TERMINAL_STATES = frozenset({"accepted", "rejected", "failed"})
+RETRYABLE_STATES = frozenset({"planned", "failed", "rejected", "repair", "cancelled"})
 ALL_STATES = frozenset({
     "planned", "submitted", "processing", "completed", "reviewed",
     "accepted", "repair", "rejected", "cancel_requested", "cancelled",
-    "unknown", "recovered", "failed",
+    "unknown", "failed",
 })
 
 
@@ -149,12 +148,13 @@ class JobLedger:
 
     def resubmission_allowed(self, fingerprint: str) -> bool:
         """True only when every prior attempt is in a settled, failed state."""
+        # One rule, shared with submit(): only an unresolved `unknown` or a
+        # live attempt blocks. Deriving this from a separate allow-list let the
+        # query and the enforcement disagree (e.g. `cancelled`).
         prior = self.by_fingerprint(fingerprint)
-        if not prior:
-            return True
-        if any(r.state in UNKNOWN_STATES for r in prior):
-            return False
-        return all(r.state in RETRYABLE_STATES for r in prior)
+        return not any(
+            r.state in UNKNOWN_STATES or r.state in SUBMITTED_STATES for r in prior
+        )
 
     # -- transitions -----------------------------------------------------
     def submit(self, record: JobRecord) -> JobRecord:
