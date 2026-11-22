@@ -36,6 +36,13 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from lib.generation_jobs import (
+    DuplicateSubmission,
+    JobLedgerError,
+    UnresolvedUnknown,
+    begin_submission,
+    ledger_for_artifact,
+)
 from tools.base_tool import (
     BaseTool,
     DependencyError,
@@ -337,15 +344,51 @@ class PixVerseVideo(BaseTool):
             # are silently ignored, only `generate_audio_switch` is type-checked.
             payload["generate_audio_switch"] = bool(inputs["generate_audio_switch"])
 
+        # Validate inputs before touching the ledger: a local validation failure
+        # must not leave a phantom "submitted" entry that blocks a real retry.
+        image_path = inputs.get("image_path")
+        if operation == "image_to_video" and not image_path:
+            return ToolResult(success=False, error="image_path is required for image_to_video")
+
+        # The ledger entry is written *before* the paid call. If this process
+        # dies mid-request, the next run sees "submitted" and must reconcile
+        # instead of paying twice. No output_path means no project to scope to;
+        # the tool still runs, but the run reports that it was unscoped.
+        output_hint = inputs.get("output_path")
+        ledger = ledger_for_artifact(Path(str(output_hint))) if output_hint else None
+        job = None
+        if ledger is not None:
+            try:
+                job = begin_submission(ledger, provider="pixverse", model=model,
+                                       prompt=prompt, params=payload)
+            except (DuplicateSubmission, UnresolvedUnknown) as exc:
+                return ToolResult(
+                    success=False,
+                    data={"provider": self.provider, "model": model,
+                          "ledger": str(ledger.path), "refused": "duplicate_submission"},
+                    error=f"refusing a duplicate paid submission: {exc}",
+                )
+
+        ledger_errors: list[str] = []
+
+        def _ledger_note(action) -> None:
+            """Bookkeeping must never mask the generation outcome."""
+            if ledger is None or job is None:
+                return
+            try:
+                action()
+            except (JobLedgerError, OSError) as exc:
+                ledger_errors.append(str(exc))
+
         try:
             if operation == "image_to_video":
-                image_path = inputs.get("image_path")
-                if not image_path:
-                    return ToolResult(success=False, error="image_path is required for image_to_video")
                 payload["img_id"] = client.upload_image(Path(str(image_path)))
                 video_id = client.image_to_video(payload)
             else:
                 video_id = client.text_to_video(payload)
+
+            _ledger_note(lambda: ledger.transition(
+                job.job_id, "processing", metadata={"provider_task_id": video_id}))
 
             resp = client.wait_for_video(
                 video_id,
@@ -362,12 +405,27 @@ class PixVerseVideo(BaseTool):
                 output_path.write_bytes(response.read())
             probed = probe_output(output_path)
         except (PixVerseError, TimeoutError, ValueError, OSError) as exc:
+            # A timeout or dropped connection does not mean the provider skipped
+            # the work, only that we stopped hearing from it. That is `unknown`,
+            # and it must block a resubmission until the task is reconciled.
+            ambiguous = isinstance(exc, TimeoutError) or getattr(exc, "code", None) == "transport"
+            if ambiguous:
+                _ledger_note(lambda: ledger.mark_unknown(
+                    job.job_id, f"{type(exc).__name__}: {exc}"))
+            else:
+                _ledger_note(lambda: ledger.transition(
+                    job.job_id, "failed", metadata={"error": str(exc)}))
             return ToolResult(
                 success=False,
                 data={"provider": self.provider, "model": model,
-                      "error_code": getattr(exc, "code", None)},
+                      "error_code": getattr(exc, "code", None),
+                      "ledger_state": "unknown" if ambiguous else "failed",
+                      "ledger_errors": ledger_errors},
                 error=f"PixVerse video generation failed: {exc}",
             )
+
+        _ledger_note(lambda: ledger.transition(
+            job.job_id, "completed", metadata={"output": str(output_path)}))
 
         return ToolResult(
             success=True,
@@ -381,6 +439,8 @@ class PixVerseVideo(BaseTool):
                 "output_path": str(output_path),
                 "format": "mp4",
                 "cost_estimate_confidence": "unknown",
+                "ledger": str(ledger.path) if ledger is not None else "unscoped",
+                "ledger_errors": ledger_errors,
                 **probed,
             },
             artifacts=[str(output_path)],

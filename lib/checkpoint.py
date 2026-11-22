@@ -592,6 +592,34 @@ def write_checkpoint(
                 f"{first.get('issue')} ({first.get('evidence') or 'no evidence'})"
             )
 
+    # --- Generation block gate (short-drama v2.7 GATE-05) ---
+    # A scene plan that declares a generation block must have a block the
+    # binding can render and beats that exactly consume it. Plans that declare
+    # neither are legacy and stay valid; the skills require the fields for new
+    # plans, so this gate cannot break a plan that predates the rule.
+    if (
+        pipeline_type == "short-drama"
+        and status == "completed"
+        and stage == "scene_plan"
+    ):
+        from lib.generation_blocks import validate_scene_plan
+
+        plan_path = Path(pipeline_dir) / project_id / "artifacts" / "scene_plan.json"
+        if plan_path.is_file():
+            try:
+                plan = json.loads(plan_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                raise CheckpointValidationError(
+                    f"GENERATION BLOCK VIOLATION: scene_plan is unreadable ({exc})"
+                ) from exc
+            findings = validate_scene_plan(plan) if isinstance(plan, dict) else []
+            if findings:
+                first = findings[0]
+                raise CheckpointValidationError(
+                    f"GENERATION BLOCK VIOLATION: {len(findings)} problem(s). "
+                    f"First: scene {first.get('scene')} — {first.get('issue')}"
+                )
+
     _enforce_stage_prerequisites(
         pipeline_dir,
         project_id,

@@ -55,6 +55,18 @@ with a `shots` list. Every shot declares:
 - `reference_character_ids` and `reference_scene_ids`;
 - `needs_lipsync`, `hook_candidate`, and candidate count.
 
+Every entry in `scenes[]` must also declare, for GATE-05:
+
+- `generation_block_seconds`: what one model call renders, 8-30s and never
+  above the bound model's maximum duration. Continuity inside one block is free
+  because it is a single generation;
+- `edit_beats[]`: how that block is cut in the edit, 2-8s each. Beat durations
+  must sum to `generation_block_seconds` — the validator rejects a plan whose
+  beats do not exactly consume their block.
+
+Plans written before this rule (no block fields) still validate, but do not
+copy that shape into a new plan.
+
 Vertical rules: 9:16 frame, 1080x1920, compose inside the 900x1400 safe area,
 leave headroom and subtitle room, and avoid putting a face under the platform
 UI overlays.

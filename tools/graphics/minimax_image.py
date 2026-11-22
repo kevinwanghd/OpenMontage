@@ -9,6 +9,13 @@ import time
 from pathlib import Path
 from typing import Any
 
+from lib.generation_jobs import (
+    DuplicateSubmission,
+    JobLedgerError,
+    UnresolvedUnknown,
+    begin_submission,
+    ledger_for_artifact,
+)
 from tools.base_tool import (
     BaseTool,
     Determinism,
@@ -257,6 +264,41 @@ class MiniMaxImage(BaseTool):
         return PRICE_PER_IMAGE_USD * int(inputs.get("n", 1))
 
     def execute(self, inputs: dict[str, Any]) -> ToolResult:
+        """Record the paid attempt in the project ledger, then call the API."""
+        output_hint = inputs.get("output_path")
+        ledger = ledger_for_artifact(Path(str(output_hint))) if output_hint else None
+        if ledger is None:
+            return self._execute_provider(inputs)
+
+        identity = {key: value for key, value in inputs.items() if key != "output_path"}
+        try:
+            job = begin_submission(
+                ledger, provider="minimax", model=str(inputs.get("model", DEFAULT_MODEL)),
+                prompt=str(inputs.get("prompt") or ""), params=identity,
+            )
+        except (DuplicateSubmission, UnresolvedUnknown) as exc:
+            return ToolResult(
+                success=False,
+                error=f"refusing a duplicate paid submission: {exc}",
+                data={"provider": "minimax", "ledger": str(ledger.path),
+                      "refused": "duplicate_submission"},
+            )
+
+        result = self._execute_provider(inputs)
+        try:
+            if result.success:
+                ledger.transition(job.job_id, "completed",
+                                  metadata={"outputs": result.data.get("outputs")})
+            elif result.data.get("ambiguous"):
+                ledger.mark_unknown(job.job_id, "connection lost during image request")
+            else:
+                ledger.transition(job.job_id, "failed",
+                                  metadata={"error": result.error or ""})
+        except (JobLedgerError, OSError) as exc:
+            result.data["ledger_error"] = str(exc)
+        return result
+
+    def _execute_provider(self, inputs: dict[str, Any]) -> ToolResult:
         api_key = os.environ.get("MINIMAX_API_KEY", "")
         if not api_key:
             return ToolResult(
@@ -308,8 +350,12 @@ class MiniMaxImage(BaseTool):
                     download.raise_for_status()
                     path.write_bytes(download.content)
         except Exception as exc:
+            # A dropped connection cannot tell us whether the provider billed
+            # the request; an HTTP 4xx/5xx is a definite failure.
+            ambiguous = isinstance(exc, (requests.Timeout, requests.ConnectionError))
             return ToolResult(
                 success=False,
+                data={"ambiguous": ambiguous, "provider": "minimax"},
                 error=(
                     "MiniMax image generation failed: "
                     f"{self._safe_error(exc, api_key)}"
