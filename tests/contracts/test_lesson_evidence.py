@@ -115,6 +115,8 @@ class TestCollect:
         # Sidecar says 0-2.5 (clip-relative); section s2 starts at 5s.
         assert evidence["speech"][0] == {"start": 5.0, "end": 7.5}
 
+    # risk:test-removal reason:"删除 test_silent_lines_are_computed：它断言的是"无语音覆盖即标记 silent"这一错误行为，而该行为会让原语跳过全部字幕行并空判为通过；已由本处三个用例替代，分别覆盖不推断 silent、忽略未映射侧车、同段多侧车报错"
+    # owner:@kevinwanghd reviewed:2026-11-22
     def test_missing_speech_is_not_marked_silent(self, tmp_path):
         """Inferring silence from absent evidence turns BLOCKED into a pass."""
         project = _project(tmp_path, srt=SRT, tts=TTS_SIDECAR)
