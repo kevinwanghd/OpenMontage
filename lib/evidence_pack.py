@@ -74,6 +74,28 @@ def validate(project_dir: Path | str, shot_id: str, *, episode: str = "ep01") ->
             })
             manifest = None
         if isinstance(manifest, dict):
+            # The pack is only evidence for the artifact it was built from.
+            # Recording a hash without comparing it would let a swapped clip
+            # keep its old review.
+            artifact = manifest.get("artifact")
+            recorded = manifest.get("artifact_sha256")
+            if artifact and recorded:
+                artifact_path = Path(str(artifact))
+                if not artifact_path.is_absolute():
+                    artifact_path = Path(project_dir) / artifact_path
+                if not artifact_path.is_file():
+                    blocking.append({
+                        "shot": shot_id, "issue": "evidence pack references a missing artifact",
+                        "evidence": str(artifact), "severity": "P0",
+                        "fix": "restore the artifact or rebuild the pack",
+                    })
+                elif _sha256(artifact_path) != recorded:
+                    blocking.append({
+                        "shot": shot_id,
+                        "issue": "artifact changed since the evidence pack was built",
+                        "evidence": str(artifact), "severity": "P0",
+                        "fix": "rebuild the pack and re-review the new artifact",
+                    })
             frames = manifest.get("contact_sheet_frames")
             if isinstance(frames, int) and frames < MIN_CONTACT_SHEET_FRAMES:
                 blocking.append({

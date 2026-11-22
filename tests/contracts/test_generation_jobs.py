@@ -106,7 +106,7 @@ class TestUnknownState:
         ledger.submit(_record(fp, "job-1"))
         ledger.mark_unknown("job-1")
         record = ledger.recover("job-1", found=True, provider_task_id="464243751518798")
-        assert record.state == "processing"
+        assert record.state == "recovered"
         assert record.provider_task_id == "464243751518798"
         # The work exists, so it must not be submitted again.
         with pytest.raises(DuplicateSubmission):
@@ -159,3 +159,56 @@ class TestLedgerIntegrity:
         stored = ledger.latest(fp)
         assert stored.parent_job_id == "job-1"
         assert stored.changed_variable == "seed"
+
+class TestQueryMatchesEnforcement:
+    """The query and the gate must never disagree about the same state."""
+
+    @pytest.mark.parametrize("state", ["cancelled", "failed", "rejected", "repair"])
+    def test_settled_states_allow_both(self, ledger, state):
+        fp = _fingerprint()
+        ledger.submit(_record(fp, "job-1"))
+        ledger.transition("job-1", state)
+        assert ledger.resubmission_allowed(fp) is True
+        ledger.submit(_record(fp, "job-2"))
+
+    @pytest.mark.parametrize("state", ["submitted", "processing", "completed", "accepted"])
+    def test_live_states_block_both(self, ledger, state):
+        fp = _fingerprint()
+        ledger.submit(_record(fp, "job-1"))
+        if state != "submitted":
+            ledger.transition("job-1", state)
+        assert ledger.resubmission_allowed(fp) is False
+        with pytest.raises(DuplicateSubmission):
+            ledger.submit(_record(fp, "job-2"))
+
+class TestRecoveredIsAFirstClassState:
+    """PRD GATE-03 declares `unknown→recovered|failed`; both must be reachable
+    and a recovered job must never be paid for twice."""
+
+    def test_recovered_job_blocks_resubmission(self, ledger):
+        fp = _fingerprint()
+        ledger.submit(_record(fp, "job-1"))
+        ledger.mark_unknown("job-1")
+        ledger.recover("job-1", found=True)
+        assert ledger.resubmission_allowed(fp) is False
+        with pytest.raises(DuplicateSubmission):
+            ledger.submit(_record(fp, "job-2"))
+
+    def test_recovered_job_can_go_unknown_again(self, ledger):
+        fp = _fingerprint()
+        ledger.submit(_record(fp, "job-1"))
+        ledger.mark_unknown("job-1")
+        ledger.recover("job-1", found=True)
+        assert ledger.mark_unknown("job-1").state == "unknown"
+
+    def test_legacy_ledger_with_recovered_record_loads(self, tmp_path):
+        import json
+
+        path = tmp_path / "artifacts" / "generation_jobs.json"
+        path.parent.mkdir(parents=True)
+        fp = _fingerprint()
+        path.write_text(json.dumps([_record(fp, "job-old", state="recovered").to_dict()]),
+                        encoding="utf-8")
+        ledger = JobLedger(path)
+        assert ledger.latest(fp).state == "recovered"
+        assert ledger.resubmission_allowed(fp) is False

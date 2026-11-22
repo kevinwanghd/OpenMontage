@@ -140,3 +140,38 @@ class TestQaIntegration:
         _pack(tmp_path, episode="ep02")
         report = qa.review(project, "shot_gen", episode="ep02", probe=lambda p: None)
         assert not any("evidence pack" in b["issue"] for b in report["blocking"])
+
+
+class TestPackIsBoundToItsArtifact:
+    """Recording a hash is worthless unless it is compared."""
+
+    def _bound(self, tmp_path):
+        project = tmp_path / "proj"
+        project.mkdir()
+        clip = project / "clip.mp4"
+        clip.write_bytes(b"original")
+        directory = evidence_pack.pack_dir(project, "m1_002")
+        (directory / "frames").mkdir(parents=True)
+        (directory / "contact_sheet.jpg").write_bytes(b"s")
+        for point in evidence_pack.FRAME_TIMEPOINTS:
+            (directory / "frames" / f"{point:03d}.jpg").write_bytes(b"f")
+        (directory / "audio.wav").write_bytes(b"w")
+        (directory / "transcript.json").write_text("{}", encoding="utf-8")
+        evidence_pack.bind(project, "m1_002", clip)
+        return project, clip
+
+    def test_swapped_artifact_invalidates_the_pack(self, tmp_path):
+        project, clip = self._bound(tmp_path)
+        clip.write_bytes(b"swapped-after-review")
+        issues = [b["issue"] for b in evidence_pack.validate(project, "m1_002")["blocking"]]
+        assert "artifact changed since the evidence pack was built" in issues
+
+    def test_deleted_artifact_invalidates_the_pack(self, tmp_path):
+        project, clip = self._bound(tmp_path)
+        clip.unlink()
+        issues = [b["issue"] for b in evidence_pack.validate(project, "m1_002")["blocking"]]
+        assert "evidence pack references a missing artifact" in issues
+
+    def test_unchanged_artifact_still_passes(self, tmp_path):
+        project, _ = self._bound(tmp_path)
+        assert evidence_pack.validate(project, "m1_002")["blocking"] == []

@@ -33,13 +33,13 @@ from typing import Any, Iterable, Optional
 JOBS_FILE = Path("artifacts") / "generation_jobs.json"
 
 #: States from which a *new* submission of the same content is a duplicate.
-SUBMITTED_STATES = frozenset({"submitted", "processing", "completed",
-                              "reviewed", "accepted"})
+#: `recovered` counts as submitted: the provider turned out to be working on it.
+SUBMITTED_STATES = frozenset({"submitted", "processing", "recovered",
+                              "completed", "reviewed", "accepted"})
 #: States that mean "we do not know what the provider did".
 UNKNOWN_STATES = frozenset({"unknown"})
 #: States that legitimately allow another attempt.
-RETRYABLE_STATES = frozenset({"failed", "rejected", "repair"})
-TERMINAL_STATES = frozenset({"accepted", "rejected", "failed"})
+RETRYABLE_STATES = frozenset({"planned", "failed", "rejected", "repair", "cancelled"})
 ALL_STATES = frozenset({
     "planned", "submitted", "processing", "completed", "reviewed",
     "accepted", "repair", "rejected", "cancel_requested", "cancelled",
@@ -149,12 +149,13 @@ class JobLedger:
 
     def resubmission_allowed(self, fingerprint: str) -> bool:
         """True only when every prior attempt is in a settled, failed state."""
+        # One rule, shared with submit(): only an unresolved `unknown` or a
+        # live attempt blocks. Deriving this from a separate allow-list let the
+        # query and the enforcement disagree (e.g. `cancelled`).
         prior = self.by_fingerprint(fingerprint)
-        if not prior:
-            return True
-        if any(r.state in UNKNOWN_STATES for r in prior):
-            return False
-        return all(r.state in RETRYABLE_STATES for r in prior)
+        return not any(
+            r.state in UNKNOWN_STATES or r.state in SUBMITTED_STATES for r in prior
+        )
 
     # -- transitions -----------------------------------------------------
     def submit(self, record: JobRecord) -> JobRecord:
@@ -186,7 +187,8 @@ class JobLedger:
         # A dropped call can only happen while work is in flight; a finished
         # job whose result was lost is a different problem (reconcile, do not
         # re-submit), so only the live states may become unknown.
-        return self._transition(job_id, frozenset({"submitted", "processing"}), "unknown",
+        return self._transition(job_id, frozenset({"submitted", "processing", "recovered"}),
+                                "unknown",
                                 metadata={"unknown_reason": reason} if reason else None)
 
     def recover(self, job_id: str, *, found: bool, provider_task_id: str = "",
@@ -194,10 +196,13 @@ class JobLedger:
         """Resolve an `unknown` after checking the provider.
 
         ``found=True`` means the provider did start the work, so the job moves
-        to `processing` and no resubmission is needed. ``found=False`` means the
+        to `recovered` and no resubmission is needed. ``found=False`` means the
         work never started, so the job settles as `failed` and a retry is legal.
         """
-        target = "processing" if found else "failed"
+        # `found=True` resolves to the dedicated `recovered` state (PRD GATE-03:
+        # `unknown→recovered|failed`), which is treated as submitted so the same
+        # request still cannot be paid for twice.
+        target = "recovered" if found else "failed"
         payload: dict[str, Any] = {"recovered": found}
         if provider_task_id:
             payload["provider_task_id"] = provider_task_id

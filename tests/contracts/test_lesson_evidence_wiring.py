@@ -44,7 +44,12 @@ class TestEvidenceWrittenOnStageCompletion:
         assert "lesson evidence could not be written" in str(error.value)
 
     def test_corrupt_source_blocks_the_stage(self, driver):
-        sidecar = driver.projects_dir / driver.project / "ep01" / "assets" / "tts.json"
+        project = driver.projects_dir / driver.project
+        (project / "artifacts").mkdir(parents=True, exist_ok=True)
+        (project / "artifacts" / "script.json").write_text(
+            '{"sections": [{"id": "s2", "text": "hi", "start_seconds": 5, "end_seconds": 9}]}',
+            encoding="utf-8")
+        sidecar = project / "ep01" / "assets" / "assembly_tts_s2_ch_nora.mp3.json"
         sidecar.write_text('{"data": {"sentences": [{"text": "no times"}]}}', encoding="utf-8")
         with pytest.raises(Exception) as error:
             driver._write_lesson_evidence("assembly", {})

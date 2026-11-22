@@ -33,14 +33,15 @@ Dialogue: 0,0:00:05.00,0:00:10.00,Drama,,0,0,0,,I can't stay for dinner.
 Dialogue: 0,0:00:18.00,0:00:22.00,Drama,,0,0,0,,Take some with you.
 """
 
+# Clip-relative: the line starts at 0 inside its own mp3.
 TTS_SIDECAR = {
     "code": 20000000,
-    "data": {"sentences": [{"startTime": 5.0, "endTime": 7.5, "text": "I can't stay for dinner."}]},
+    "data": {"sentences": [{"startTime": 0.0, "endTime": 2.5, "text": "I can't stay for dinner."}]},
 }
 
 TTS_SIDECAR_MS = {
     "code": 20000000,
-    "data": {"sentences": [{"startTime": 5000, "endTime": 7500, "text": "ms units"}]},
+    "data": {"sentences": [{"startTime": 0, "endTime": 2500, "text": "ms units"}]},
 }
 
 
@@ -58,6 +59,15 @@ def _project(tmp_path, *, srt=None, ass=None, tts=None, report=None):
         (assets / "assembly_tts_s2_ch_nora.mp3.json").write_text(json.dumps(tts), encoding="utf-8")
     if report:
         (artifacts / "render_report.json").write_text(json.dumps(report), encoding="utf-8")
+    # Section offsets are what turn clip-relative TTS times into timeline times.
+    (artifacts / "script.json").write_text(json.dumps({
+        "version": "1.0", "title": "t", "total_duration_seconds": 30,
+        "sections": [
+            {"id": "s1", "text": "", "start_seconds": 0, "end_seconds": 5},
+            {"id": "s2", "text": "I can't stay for dinner.", "start_seconds": 5, "end_seconds": 10},
+            {"id": "s3", "text": "I made too much soup.", "start_seconds": 10, "end_seconds": 14},
+        ],
+    }), encoding="utf-8")
     return project
 
 
@@ -78,12 +88,12 @@ class TestParsing:
     def test_tts_seconds(self, tmp_path):
         path = tmp_path / "t.json"
         path.write_text(json.dumps(TTS_SIDECAR), encoding="utf-8")
-        assert ev.parse_tts_speech(path)[0] == {"start": 5.0, "end": 7.5}
+        assert ev.parse_tts_speech(path)[0] == {"start": 0.0, "end": 2.5}
 
     def test_tts_milliseconds_are_detected(self, tmp_path):
         path = tmp_path / "t.json"
         path.write_text(json.dumps(TTS_SIDECAR_MS), encoding="utf-8")
-        assert ev.parse_tts_speech(path)[0] == {"start": 5.0, "end": 7.5}
+        assert ev.parse_tts_speech(path)[0] == {"start": 0.0, "end": 2.5}
 
     def test_corrupt_tts_raises_instead_of_skipping(self, tmp_path):
         path = tmp_path / "t.json"
@@ -102,12 +112,29 @@ class TestCollect:
         project = _project(tmp_path, srt=SRT, tts=TTS_SIDECAR)
         evidence = ev.collect(project, "assembly")
         assert evidence["subtitles"][0] == {"start": 5.0, "end": 10.0}
+        # Sidecar says 0-2.5 (clip-relative); section s2 starts at 5s.
         assert evidence["speech"][0] == {"start": 5.0, "end": 7.5}
 
-    def test_silent_lines_are_computed(self, tmp_path):
+    # risk:test-removal reason:"删除 test_silent_lines_are_computed：它断言的是"无语音覆盖即标记 silent"这一错误行为，而该行为会让原语跳过全部字幕行并空判为通过；已由本处三个用例替代，分别覆盖不推断 silent、忽略未映射侧车、同段多侧车报错"
+    # owner:@kevinwanghd reviewed:2026-11-22
+    def test_missing_speech_is_not_marked_silent(self, tmp_path):
+        """Inferring silence from absent evidence turns BLOCKED into a pass."""
         project = _project(tmp_path, srt=SRT, tts=TTS_SIDECAR)
-        # Speech only covers 5-7.5; the 10-14 cue has no speech under it.
-        assert ev.collect(project, "assembly")["silent_lines"] == [1]
+        # The 10-14 cue has no speech under it, but the script says it is spoken.
+        assert "silent_lines" not in ev.collect(project, "assembly")
+
+    def test_unmapped_sidecars_are_ignored(self, tmp_path):
+        project = _project(tmp_path, srt=SRT)
+        (project / "ep01" / "assets" / "probe_tts_random.mp3.json").write_text(
+            json.dumps(TTS_SIDECAR), encoding="utf-8")
+        assert "speech" not in ev.collect(project, "assembly")
+
+    def test_two_sidecars_for_one_section_raise(self, tmp_path):
+        project = _project(tmp_path, srt=SRT, tts=TTS_SIDECAR)
+        (project / "ep01" / "assets" / "assembly_tts_voice_s2.mp3.json").write_text(
+            json.dumps(TTS_SIDECAR), encoding="utf-8")
+        with pytest.raises(ev.LessonEvidenceError):
+            ev.collect(project, "assembly")
 
     def test_loudness_and_version_come_from_render_report(self, tmp_path):
         project = _project(tmp_path, report={
@@ -128,7 +155,7 @@ class TestPredicateIntegration:
         project = _project(
             tmp_path,
             srt="1\n00:00:03,640 --> 00:00:06,000\nline\n",
-            tts={"data": {"sentences": [{"startTime": 5.0, "endTime": 6.5}]}},
+            tts={"data": {"sentences": [{"startTime": 0.0, "endTime": 2.36}]}},
         )
         evidence = ev.collect(project, "assembly")
         verdict = lesson_predicates.subtitle_timing_matches_speech(PREDICATE, evidence)
@@ -136,8 +163,7 @@ class TestPredicateIntegration:
 
     def test_subtitle_predicate_passes_when_aligned(self, tmp_path):
         project = _project(tmp_path, srt=SRT, tts={"data": {"sentences": [
-            {"startTime": 5.05, "endTime": 9.9},
-            {"startTime": 10.05, "endTime": 13.9},
+            {"startTime": 0.05, "endTime": 4.9},
         ]}})
         evidence = ev.collect(project, "assembly")
         assert lesson_predicates.subtitle_timing_matches_speech(PREDICATE, evidence) is not False
@@ -185,3 +211,53 @@ class TestRenderReportLocation:
     def test_project_level_fallback_still_works(self, tmp_path):
         project = _project(tmp_path, report={"audio": {"loudness_lufs": -15.0}})
         assert ev.collect(project, "assembly")["loudness_lufs"] == -15.0
+
+
+class TestIncidentRegression:
+    """The producer must not disarm the lesson it exists to arm.
+
+    On the real 2026-11-17 project the first version of this producer returned
+    evidence that made `subtitle_timing_matches_speech` PASS: clip-relative TTS
+    times were added raw, every cue looked speechless, and every cue was then
+    auto-marked silent, which the predicate skips outright.
+    """
+
+    def test_early_subtitle_inside_silent_hook_still_fails(self, tmp_path):
+        project = _project(
+            tmp_path,
+            srt="1\n00:00:03,640 --> 00:00:06,000\nline\n",
+            tts={"data": {"sentences": [{"startTime": 0.0, "endTime": 2.36}]}},
+        )
+        evidence = ev.collect(project, "assembly")
+        assert "silent_lines" not in evidence
+        assert lesson_predicates.subtitle_timing_matches_speech(PREDICATE, evidence) is False
+
+    def test_no_mapped_speech_yields_blocked_not_pass(self, tmp_path):
+        project = _project(tmp_path, srt=SRT)
+        evidence = ev.collect(project, "assembly")
+        assert "speech" not in evidence
+        # The predicate refuses to decide without speech; the driver's lesson
+        # gate turns that refusal into BLOCKED. Either way it is not a pass.
+        with pytest.raises(lesson_predicates.PredicateError):
+            lesson_predicates.subtitle_timing_matches_speech(PREDICATE, evidence)
+
+
+class TestUnmappableSidecarsFailLoudly:
+    """Sidecars without section offsets must not vanish into a silent BLOCKED."""
+
+    def test_assembly_with_sidecars_but_no_script_raises(self, tmp_path):
+        project = tmp_path / "proj"
+        assets = project / "ep01" / "assets"
+        assets.mkdir(parents=True)
+        (assets / "assembly_tts_s2.mp3.json").write_text(json.dumps(TTS_SIDECAR),
+                                                         encoding="utf-8")
+        with pytest.raises(ev.LessonEvidenceError):
+            ev.collect(project, "assembly")
+
+    def test_delivery_does_not_need_the_timeline(self, tmp_path):
+        project = tmp_path / "proj"
+        assets = project / "ep01" / "assets"
+        assets.mkdir(parents=True)
+        (assets / "assembly_tts_s2.mp3.json").write_text(json.dumps(TTS_SIDECAR),
+                                                         encoding="utf-8")
+        assert "speech" not in ev.collect(project, "delivery")

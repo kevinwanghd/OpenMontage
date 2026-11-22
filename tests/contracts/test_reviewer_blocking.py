@@ -163,3 +163,24 @@ class TestPipelineScoping:
     def test_unknown_pipeline_is_not_blocking(self):
         from lib.checkpoint import _review_blocking
         assert _review_blocking(None) is False
+
+
+class TestManifestFailureConvention:
+    """Match _stage_requires_approval: bad name fails closed, bad file degrades."""
+
+    def test_unknown_pipeline_name_raises(self):
+        from lib.checkpoint import CheckpointValidationError, _review_blocking
+        with pytest.raises(CheckpointValidationError):
+            _review_blocking("no-such-pipeline")
+
+    def test_corrupt_manifest_degrades_to_advisory(self, monkeypatch, caplog):
+        import lib.pipeline_loader as loader
+        from lib.checkpoint import _review_blocking
+
+        def _boom(name, *args, **kwargs):
+            raise ValueError("schema violation")
+
+        monkeypatch.setattr(loader, "load_pipeline_readonly", _boom)
+        with caplog.at_level("WARNING"):
+            assert _review_blocking("short-drama") is False
+        assert "advisory" in caplog.text
