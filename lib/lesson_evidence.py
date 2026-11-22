@@ -39,6 +39,9 @@ SUBTITLE_CANDIDATES = (
 )
 TTS_GLOB = "*tts*.json"
 RENDER_REPORT_NAMES = ("render_report.json", "render_report_v6.json")
+#: Stages whose lessons compare speech against subtitles; only these must have
+#: a usable timeline mapping.
+SPEECH_STAGES = frozenset({"assembly"})
 
 _ASS_TS = re.compile(r"^(?P<h>\d+):(?P<m>\d{2}):(?P<s>\d{2})[.:](?P<cs>\d{2})$")
 _SRT_TS = re.compile(
@@ -193,10 +196,21 @@ def collect(project_dir: Path | str, stage: str, *, episode: str = "ep01") -> di
     # sidecars that can be tied to a script section are usable, and each is
     # shifted by that section's start time.
     offsets = section_offsets(project_dir)
+    sidecars = sorted(assets.glob(TTS_GLOB)) if assets.is_dir() else []
+    # Sidecars without section offsets cannot be placed on the timeline. For the
+    # stage whose lesson judges subtitle/speech alignment, dropping them would
+    # silently produce "no speech" and turn the check into a vacuous BLOCKED that
+    # is indistinguishable from "nothing was generated". Fail loudly instead.
+    if sidecars and not offsets and stage in SPEECH_STAGES:
+        raise LessonEvidenceError(
+            f"{len(sidecars)} TTS sidecar(s) exist but artifacts/script.json has no "
+            f"section start times; clip-relative speech cannot be mapped to the "
+            f"timeline, so {stage} evidence would be unusable"
+        )
     speech: list[dict[str, float]] = []
     mapped_sections: set[str] = set()
-    if assets.is_dir() and offsets:
-        for sidecar in sorted(assets.glob(TTS_GLOB)):
+    if offsets:
+        for sidecar in sidecars:
             match = SECTION_ID.search(sidecar.name)
             if not match or match.group(1) not in offsets:
                 continue

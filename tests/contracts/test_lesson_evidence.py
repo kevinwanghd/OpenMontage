@@ -240,3 +240,24 @@ class TestIncidentRegression:
         # gate turns that refusal into BLOCKED. Either way it is not a pass.
         with pytest.raises(lesson_predicates.PredicateError):
             lesson_predicates.subtitle_timing_matches_speech(PREDICATE, evidence)
+
+
+class TestUnmappableSidecarsFailLoudly:
+    """Sidecars without section offsets must not vanish into a silent BLOCKED."""
+
+    def test_assembly_with_sidecars_but_no_script_raises(self, tmp_path):
+        project = tmp_path / "proj"
+        assets = project / "ep01" / "assets"
+        assets.mkdir(parents=True)
+        (assets / "assembly_tts_s2.mp3.json").write_text(json.dumps(TTS_SIDECAR),
+                                                         encoding="utf-8")
+        with pytest.raises(ev.LessonEvidenceError):
+            ev.collect(project, "assembly")
+
+    def test_delivery_does_not_need_the_timeline(self, tmp_path):
+        project = tmp_path / "proj"
+        assets = project / "ep01" / "assets"
+        assets.mkdir(parents=True)
+        (assets / "assembly_tts_s2.mp3.json").write_text(json.dumps(TTS_SIDECAR),
+                                                         encoding="utf-8")
+        assert "speech" not in ev.collect(project, "delivery")

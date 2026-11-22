@@ -106,7 +106,7 @@ class TestUnknownState:
         ledger.submit(_record(fp, "job-1"))
         ledger.mark_unknown("job-1")
         record = ledger.recover("job-1", found=True, provider_task_id="464243751518798")
-        assert record.state == "processing"
+        assert record.state == "recovered"
         assert record.provider_task_id == "464243751518798"
         # The work exists, so it must not be submitted again.
         with pytest.raises(DuplicateSubmission):
@@ -180,3 +180,35 @@ class TestQueryMatchesEnforcement:
         assert ledger.resubmission_allowed(fp) is False
         with pytest.raises(DuplicateSubmission):
             ledger.submit(_record(fp, "job-2"))
+
+class TestRecoveredIsAFirstClassState:
+    """PRD GATE-03 declares `unknown→recovered|failed`; both must be reachable
+    and a recovered job must never be paid for twice."""
+
+    def test_recovered_job_blocks_resubmission(self, ledger):
+        fp = _fingerprint()
+        ledger.submit(_record(fp, "job-1"))
+        ledger.mark_unknown("job-1")
+        ledger.recover("job-1", found=True)
+        assert ledger.resubmission_allowed(fp) is False
+        with pytest.raises(DuplicateSubmission):
+            ledger.submit(_record(fp, "job-2"))
+
+    def test_recovered_job_can_go_unknown_again(self, ledger):
+        fp = _fingerprint()
+        ledger.submit(_record(fp, "job-1"))
+        ledger.mark_unknown("job-1")
+        ledger.recover("job-1", found=True)
+        assert ledger.mark_unknown("job-1").state == "unknown"
+
+    def test_legacy_ledger_with_recovered_record_loads(self, tmp_path):
+        import json
+
+        path = tmp_path / "artifacts" / "generation_jobs.json"
+        path.parent.mkdir(parents=True)
+        fp = _fingerprint()
+        path.write_text(json.dumps([_record(fp, "job-old", state="recovered").to_dict()]),
+                        encoding="utf-8")
+        ledger = JobLedger(path)
+        assert ledger.latest(fp).state == "recovered"
+        assert ledger.resubmission_allowed(fp) is False
