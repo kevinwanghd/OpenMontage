@@ -100,3 +100,58 @@ class TestChaining:
             {"scene_id": "sc1", "starts_from": "fresh_start"},
         ]
         assert len(gb.validate_chaining(sequence)) == 1
+
+class TestWiring:
+    """The validator was dead code until a stage actually called it."""
+
+    def _project(self, tmp_path, scenes):
+        import json
+        from pathlib import Path
+
+        project = Path(tmp_path) / "proj"
+        (project / "artifacts").mkdir(parents=True)
+        (project / "artifacts" / "scene_plan.json").write_text(
+            json.dumps({"version": "1.0", "scenes": scenes}), encoding="utf-8")
+        return project
+
+    def test_qa_review_blocks_bad_beats(self, tmp_path):
+        from shortdrama import qa
+
+        project = self._project(tmp_path, [{
+            "id": "s1", "type": "generated", "description": "d",
+            "start_seconds": 0, "end_seconds": 20,
+            "generation_block_seconds": 10,
+            "edit_beats": [{"duration_s": 3}],
+        }])
+        report = qa.review(project, "scene_plan", probe=lambda path: None)
+        assert any(b["issue"] == "generation block" for b in report["blocking"])
+
+    def test_legacy_plan_only_warns(self, tmp_path):
+        from shortdrama import qa
+
+        project = self._project(tmp_path, [{
+            "id": "s1", "type": "generated", "description": "d",
+            "start_seconds": 0, "end_seconds": 20,
+        }])
+        report = qa.review(project, "scene_plan", probe=lambda path: None)
+        assert not any(b["issue"] == "generation block" for b in report["blocking"])
+        assert any("no generation block" in w["issue"] for w in report["warnings"])
+
+    def test_checkpoint_refuses_a_completed_plan_with_bad_beats(self, tmp_path):
+        import pytest
+        from lib.checkpoint import CheckpointValidationError, write_checkpoint
+
+        plan = {"version": "1.0", "scenes": [{
+            "id": "s1", "type": "generated", "description": "d",
+            "start_seconds": 0, "end_seconds": 20,
+            "generation_block_seconds": 10,
+            "edit_beats": [{"duration_s": 30}],
+        }]}
+        self._project(tmp_path, plan["scenes"])
+
+        with pytest.raises(CheckpointValidationError, match="GENERATION BLOCK VIOLATION"):
+            write_checkpoint(
+                tmp_path, "proj", "scene_plan", "completed",
+                artifacts={"scene_plan": plan}, pipeline_type="short-drama",
+                human_approved=True,
+            )

@@ -18,7 +18,15 @@ def _plan(dialogue: bool = True) -> dict:
     }
     if dialogue:
         shot["dialogue"] = {"text": "hello", "speaker": "ch_a"}
-    return {"version": "1.0", "scenes": [{"id": "sc1"}], "shots": [shot]}
+    # GATE-05: a current plan declares a renderable block and beats that
+    # exactly consume it; the fixture must not model the legacy shape.
+    scene = {
+        "id": "sc1", "type": "generated", "description": "d",
+        "start_seconds": 0, "end_seconds": 8,
+        "generation_block_seconds": 8,
+        "edit_beats": [{"duration_s": 4}, {"duration_s": 4}],
+    }
+    return {"version": "1.0", "scenes": [scene], "shots": [shot]}
 
 
 def _probe(width=720, height=1280, duration=5.0, audio=True):

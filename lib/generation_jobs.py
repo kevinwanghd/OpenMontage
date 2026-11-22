@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Optional
@@ -242,3 +243,42 @@ class JobLedger:
             self._write(records)
             return record
         raise JobLedgerError(f"unknown job id {job_id!r}")
+
+# -- provider wiring -------------------------------------------------------
+
+def ledger_for_artifact(artifact_path: Path | str) -> Optional[JobLedger]:
+    """Find the project that owns ``artifact_path`` and open its ledger.
+
+    Provider tools only know the file they are about to write. Walking up to
+    the nearest directory with an ``artifacts/`` child is what lets the ledger
+    be attached without asking every caller to pass a project id.
+    """
+    path = Path(artifact_path)
+    try:
+        path = path.resolve()
+    except OSError:
+        path = Path(path.absolute())
+    for candidate in (path.parent, *path.parent.parents):
+        if (candidate / "artifacts").is_dir():
+            return JobLedger(candidate / JOBS_FILE)
+    return None
+
+
+def begin_submission(ledger: JobLedger, *, provider: str, model: str,
+                     prompt: str, params: Any,
+                     job_id: Optional[str] = None) -> JobRecord:
+    """Record an attempt *before* the paid call is made.
+
+    Raises :class:`DuplicateSubmission` / :class:`UnresolvedUnknown` when the
+    same request must not be paid for again; the caller turns that into a
+    refused run.
+    """
+    fingerprint = request_fingerprint(provider, model, prompt, params)
+    record = JobRecord(
+        job_id=job_id or uuid.uuid4().hex,
+        request_fingerprint=fingerprint,
+        idempotency_key=idempotency_key(fingerprint),
+        provider=provider,
+        metadata={"model": model},
+    )
+    return ledger.submit(record)

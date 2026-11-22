@@ -168,6 +168,27 @@ def review(
         for err in continuity.validate_scene_plan(scene_plan, known):
             issues.append({"issue": "continuity", "evidence": err,
                            "fix": "register the reference before generating"})
+        # GATE-05: a declared generation block must fit the model and its beats
+        # must consume it exactly. Plans that declare neither are legacy (the
+        # skills require the fields for new plans), so they only warn.
+        if stage in ("scene_plan", "shot_gen"):
+            from lib import generation_blocks
+
+            for finding in generation_blocks.validate_scene_plan(scene_plan):
+                issues.append({"issue": "generation block",
+                               "evidence": f"scene {finding.get('scene')}: "
+                                           f"{finding.get('issue')}",
+                               "fix": finding.get("fix")})
+            scenes = [s for s in scene_plan.get("scenes") or [] if isinstance(s, dict)]
+            legacy = [s for s in scenes
+                      if s.get("generation_block_seconds") is None
+                      and s.get("edit_beats") is None]
+            if legacy:
+                warnings.append({
+                    "issue": "legacy scene(s) declare no generation block",
+                    "evidence": ", ".join(str(s.get("id")) for s in legacy),
+                    "fix": "new plans must declare generation_block_seconds and edit_beats",
+                })
         assets_dir = project_dir / episode / "assets"
         media = review_media(assets_dir, scene_plan, stage=stage, probe=probe)
         issues += media["blocking"]

@@ -13,6 +13,13 @@ import time
 from pathlib import Path
 from typing import Any
 
+from lib.generation_jobs import (
+    DuplicateSubmission,
+    JobLedgerError,
+    UnresolvedUnknown,
+    begin_submission,
+    ledger_for_artifact,
+)
 from tools.base_tool import (
     BaseTool,
     Determinism,
@@ -455,6 +462,50 @@ class MiniMaxVideo(BaseTool):
         return payload, None
 
     def execute(self, inputs: dict[str, Any]) -> ToolResult:
+        """Record the paid attempt in the project ledger, then call the API.
+
+        The record is written before submission so a crash mid-request leaves a
+        visible `submitted` entry instead of an invisible charge. Timeouts are
+        `unknown`, never `failed`: the provider may still be rendering.
+        """
+        output_hint = inputs.get("output_path")
+        ledger = ledger_for_artifact(Path(str(output_hint))) if output_hint else None
+        if ledger is None:
+            return self._execute_provider(inputs)
+
+        identity = {
+            key: value for key, value in inputs.items()
+            if key not in {"timeout_seconds", "poll_interval_seconds", "output_path"}
+        }
+        try:
+            job = begin_submission(
+                ledger, provider="minimax", model=str(inputs.get("model", DEFAULT_MODEL)),
+                prompt=str(inputs.get("prompt") or ""), params=identity,
+            )
+        except (DuplicateSubmission, UnresolvedUnknown) as exc:
+            return ToolResult(
+                success=False,
+                error=f"refusing a duplicate paid submission: {exc}",
+                data={"provider": "minimax", "ledger": str(ledger.path),
+                      "refused": "duplicate_submission"},
+            )
+
+        result = self._execute_provider(inputs)
+        try:
+            if result.success:
+                ledger.transition(job.job_id, "completed",
+                                  metadata={"output": (result.data or {}).get("output")})
+            elif (result.data or {}).get("ambiguous") or (result.data or {}).get("status") == "timed_out":
+                ledger.mark_unknown(job.job_id, "timeout or dropped connection")
+            else:
+                ledger.transition(job.job_id, "failed",
+                                  metadata={"error": result.error or ""})
+        except (JobLedgerError, OSError) as exc:
+            # Bookkeeping must never mask the generation outcome.
+            result.data["ledger_error"] = str(exc)
+        return result
+
+    def _execute_provider(self, inputs: dict[str, Any]) -> ToolResult:
         api_key = self._get_api_key()
         if not api_key:
             return ToolResult(
@@ -634,9 +685,10 @@ class MiniMaxVideo(BaseTool):
                     "model": model,
                     "api_version": api_version,
                     "task_id": task_id,
+                    "ambiguous": isinstance(e, (requests.Timeout, requests.ConnectionError)),
                 }
                 if task_id
-                else {},
+                else {"ambiguous": isinstance(e, (requests.Timeout, requests.ConnectionError))},
                 model=model,
             )
 

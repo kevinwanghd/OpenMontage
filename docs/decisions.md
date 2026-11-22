@@ -82,3 +82,12 @@
 - **边界**：只对 `pipeline_type == "short-drama"` 且 `status == "completed"` 的 `keyframe/shot_gen/assembly` 生效；未声明 `provenance_version` 的旧清单只告警。
 - **回退**：删除 `write_checkpoint` 中 `_validate_artifacts` 的调用即回到旧行为。
 - **待确认**：本条为用户对 GATE-01 裁决的同构延伸，需用户追认；若驳回，则应改为只在 Agent 层校验。
+
+## 2026-11-22 G03/G05 接线范围（用户确认）
+
+- **冲突**：CARD-G03 写的是“各 provider 工具提交/轮询处接入”，仓库约 30 个 provider；CARD-G05 写的是“scene_plan 每场声明”，但 schema 字段可选、旧项目没有。
+- **裁决（用户确认，2026-11-22）**：
+  - G03 只接实际付费且在本项目使用的两个 provider：**PixVerse**（`tools/video/pixverse_video.py`）与 **MiniMax**（`tools/video/minimax_video.py`、`tools/graphics/minimax_image.py`）。其余 provider 未接入，属于已知缺口，不在本轮范围。
+  - G05 采取“**新计划必产出，老项目豁免**”：scene-plan 技能要求新 `scene_plan` 的每个 scene 声明 `generation_block_seconds` 与 `edit_beats`；checkpoint 在 `scene_plan` 写 `completed` 时执行 `lib/generation_blocks.validate_scene_plan`，但未声明这两个字段的旧计划只告警、不阻断。
+- **边界**：账本以 `output_path` 向上找到最近含 `artifacts/` 的目录作为项目根；无 `output_path` 时不记账（工具仍可用，结果标记 `unscoped`）。超时/断连记为 `unknown`，不自动重提。
+- **回退**：删除三个 provider 中的 `ledger_for_artifact/begin_submission` 调用即回到无账本行为；删除 `checkpoint.py` 的 GATE-05 段即回到只告警。
