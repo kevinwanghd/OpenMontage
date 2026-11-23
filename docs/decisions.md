@@ -92,3 +92,13 @@
   - G05 采取“**新计划必产出，老项目豁免**”：scene-plan 技能要求新 `scene_plan` 的每个 scene 声明 `generation_block_seconds` 与 `edit_beats`；checkpoint 在 `scene_plan` 写 `completed` 时执行 `lib/generation_blocks.validate_scene_plan`，但未声明这两个字段的旧计划只告警、不阻断。
 - **边界**：账本以 `output_path` 向上找到最近含 `artifacts/` 的目录作为项目根；无 `output_path` 时不记账（工具仍可用，结果标记 `unscoped`）。超时/断连记为 `unknown`，不自动重提。
 - **回退**：删除三个 provider 中的 `ledger_for_artifact/begin_submission` 调用即回到无账本行为；删除 `checkpoint.py` 的 GATE-05 段即回到只告警。
+
+## 2026-11-23 门禁声明化与审片严重度词汇（CARD-D1/D2/D3）
+
+- **冲突**：产物边界门与生成块门写死 `pipeline_type == "short-drama"`；通用 reviewer 用 `critical/suggestion/nitpick`，而 `_p0_review_findings` 只认 `P0`。换流水线做内容时，门禁静默失效。
+- **裁决（用户确认 PRD v2.8 + 需求卡，2026-11-23）**：
+  - 门是否生效由 manifest 声明：`artifact_gate_stages`（数组）与 `generation_block_gate`（布尔），默认不生效；short-drama 显式声明原行为。
+  - 严重度只做词汇映射：`P0`/`critical` 为阻断级，`P1`/`suggestion`/`nitpick` 与非空其它值不阻断，缺失 severity 不阻断。Python 不判断内容轻重。
+  - 儿童教育方向（动画角色讲解）首批接入 `animated-explainer` 与 `character-animation` 的 `review_blocking`；两条流水线的产物边界门与生成块门暂不开启。
+- **边界**：未知 pipeline 名抛错；清单损坏记 warning 并降级为不触发，与 `_stage_requires_approval` 一致。
+- **回退**：删除 manifest 中的三个声明即回到 v2.7 行为；词汇映射回退为只认 `P0` 需同时回退 D3 的两条声明，否则 critical 不再阻断。

@@ -15,6 +15,13 @@ default_checkpoint_policy: manual_all
 # v2.7 GATE-01: a P0 reviewer finding blocks `completed` for this pipeline.
 # Without this declaration the reviewer stays advisory (AGENT_GUIDE).
 review_blocking: true
+# v2.8 GATE-D1: the two boundary gates are declared here instead of being
+# hard-coded in checkpoint.py, so other pipelines can opt in.
+artifact_gate_stages:
+  - keyframe
+  - shot_gen
+  - assembly
+generation_block_gate: true
 
 extensions:
   custom_scripts: true

@@ -8,6 +8,9 @@ category: generated
 stability: production
 
 default_checkpoint_policy: guided
+# v2.8 GATE-D3: children's-education content runs on this pipeline; a critical
+# reviewer finding must block `completed` rather than stay advisory.
+review_blocking: true
 
 # Reference video input support
 reference_input:
