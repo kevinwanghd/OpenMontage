@@ -352,6 +352,17 @@
       "type": "boolean",
       "default": false,
       "description": "v2.7 GATE-01: when true, a P0 reviewer finding blocks writing a stage as 'completed'. Omit for advisory review."
+    },
+    "artifact_gate_stages": {
+      "type": "array",
+      "items": {"type": "string"},
+      "default": [],
+      "description": "v2.8 GATE-D1: stages whose 'completed' checkpoint validates asset_manifest provenance. Empty means the gate is off for this pipeline."
+    },
+    "generation_block_gate": {
+      "type": "boolean",
+      "default": false,
+      "description": "v2.8 GATE-D1: when true, writing scene_plan as 'completed' validates generation_block_seconds and edit_beats. Plans that declare neither stay exempt."
     }
   },
   "additionalProperties": false

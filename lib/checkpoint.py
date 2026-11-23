@@ -16,6 +16,11 @@ import jsonschema
 
 from schemas.artifacts import ARTIFACT_NAMES, validate_artifact
 
+#: Reviewer severities that block a `completed` checkpoint (v2.8 GATE-D2).
+#: `critical` is the generic reviewer skill's word for the same finding that the
+#: short-drama QA calls `P0`.
+BLOCKING_SEVERITIES = frozenset({"P0", "CRITICAL"})
+
 # All known stages across all pipelines (used only for artifact name lookup).
 ALL_KNOWN_STAGES = frozenset([
     "research", "proposal", "idea", "script", "scene_plan",
@@ -252,33 +257,56 @@ def init_project(
     return project_dir
 
 
-def _review_blocking(pipeline_type: Optional[str]) -> bool:
-    """True when the pipeline manifest declares blocking reviewer semantics."""
+def _manifest_policy(pipeline_type: Optional[str], key: str, default: Any,
+                     *, label: str) -> Any:
+    """Read a gate declaration from the pipeline manifest (v2.8 GATE-D1).
+
+    An unknown *name* is a typo and fails closed, like
+    :func:`_stage_requires_approval`; a present-yet-corrupt manifest degrades to
+    the default and makes the degradation visible, so one bad file cannot strand
+    every checkpoint write.
+    """
     if not pipeline_type or pipeline_type == "unknown":
-        return False
+        return default
     from lib.pipeline_loader import load_pipeline_readonly
     try:
         manifest = load_pipeline_readonly(pipeline_type)
     except FileNotFoundError:
-        # Fail closed, like _stage_requires_approval: a typo in pipeline_type
-        # must not silently switch the reviewer back to advisory.
         raise CheckpointValidationError(
             f"Unknown pipeline_type {pipeline_type!r} — cannot resolve whether "
-            f"the reviewer blocks. Fix the pipeline name."
+            f"{label} applies. Fix the pipeline name."
         )
     except Exception as exc:
-        # Same convention as _stage_requires_approval: an unknown *name* is a
-        # typo and must fail closed, but a present-yet-corrupt manifest must not
-        # strand every checkpoint write for that pipeline. Degrade to advisory
-        # and make the degradation visible.
         import logging
         logging.getLogger(__name__).warning(
             "Review policy unavailable for pipeline %r (%s) — treating the "
-            "reviewer as advisory because the manifest failed to load.",
-            pipeline_type, exc,
+            "%s as advisory because the manifest failed to load.",
+            pipeline_type, exc, label,
         )
-        return False
-    return manifest.get("review_blocking") is True
+        return default
+    return manifest.get(key, default)
+
+
+def _review_blocking(pipeline_type: Optional[str]) -> bool:
+    """True when the pipeline manifest declares blocking reviewer semantics."""
+    return _manifest_policy(
+        pipeline_type, "review_blocking", False, label="reviewer") is True
+
+
+def _artifact_gate_stages(pipeline_type: Optional[str]) -> frozenset[str]:
+    """Stages whose completed checkpoint runs the artifact provenance gate."""
+    value = _manifest_policy(
+        pipeline_type, "artifact_gate_stages", [], label="artifact gate")
+    if not isinstance(value, (list, tuple)):
+        return frozenset()
+    return frozenset(str(stage) for stage in value if isinstance(stage, str))
+
+
+def _generation_block_gate(pipeline_type: Optional[str]) -> bool:
+    """True when the pipeline declares the generation-block validator."""
+    return _manifest_policy(
+        pipeline_type, "generation_block_gate", False,
+        label="generation-block gate") is True
 
 
 def _p0_review_findings(review: Optional[dict]) -> list[dict]:
@@ -286,9 +314,12 @@ def _p0_review_findings(review: Optional[dict]) -> list[dict]:
 
     Accepts either a flat ``findings`` list or the ``blocking``/``warnings``
     split that ``shortdrama.qa`` emits, so both shapes go through one gate.
-    A finding counts as P0 when its severity says so; entries with no severity
-    are treated as P1 — the gate must not invent blockers out of legacy data,
-    but the producer (qa / reviewer) is required to stamp severity.
+    A finding blocks when its severity is ``P0`` or ``critical``. The generic
+    reviewer skill uses ``critical``/``suggestion``/``nitpick`` while the
+    short-drama QA emits ``P0``/``P1``; both vocabularies describe the same
+    thing, so the gate maps them instead of forcing every producer to rename
+    its output (v2.8 GATE-D2). Entries with no severity are treated as
+    non-blocking — the gate must not invent blockers out of legacy data.
     """
     if not isinstance(review, dict):
         return []
@@ -302,7 +333,7 @@ def _p0_review_findings(review: Optional[dict]) -> list[dict]:
         if not isinstance(item, dict):
             continue
         severity = str(item.get("severity") or "").strip().upper()
-        if severity == "P0":
+        if severity in BLOCKING_SEVERITIES:
             p0.append(item)
     return p0
 
@@ -576,9 +607,8 @@ def write_checkpoint(
     # executed itself: generating an asset by calling a tool directly used to
     # skip every check silently.
     if (
-        pipeline_type == "short-drama"
-        and status == "completed"
-        and stage in ("keyframe", "shot_gen", "assembly")
+        status == "completed"
+        and stage in _artifact_gate_stages(pipeline_type)
     ):
         from lib.artifact_gate import validate as _validate_artifacts
 
@@ -598,9 +628,9 @@ def write_checkpoint(
     # neither are legacy and stay valid; the skills require the fields for new
     # plans, so this gate cannot break a plan that predates the rule.
     if (
-        pipeline_type == "short-drama"
-        and status == "completed"
+        status == "completed"
         and stage == "scene_plan"
+        and _generation_block_gate(pipeline_type)
     ):
         from lib.generation_blocks import validate_scene_plan
 

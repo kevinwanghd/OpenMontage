@@ -158,7 +158,9 @@ class TestPipelineScoping:
 
     def test_other_pipelines_stay_advisory(self):
         from lib.checkpoint import _review_blocking
-        assert _review_blocking("animated-explainer") is False
+        # v2.8 GATE-D3 moved animated-explainer to blocking; cinematic is the
+        # untouched example now.
+        assert _review_blocking("cinematic") is False
 
     def test_unknown_pipeline_is_not_blocking(self):
         from lib.checkpoint import _review_blocking
@@ -184,3 +186,36 @@ class TestManifestFailureConvention:
         with caplog.at_level("WARNING"):
             assert _review_blocking("short-drama") is False
         assert "advisory" in caplog.text
+
+
+class TestSeverityVocabulary:
+    """v2.8 GATE-D2: `critical` and `P0` name the same blocking finding."""
+
+    def test_critical_blocks(self, tmp_path):
+        review = {"findings": [{"issue": "no audio track", "severity": "critical"}]}
+        with pytest.raises(CheckpointValidationError, match="REVIEW VIOLATION"):
+            _write(tmp_path, review)
+
+    def test_critical_is_case_insensitive(self, tmp_path):
+        review = {"findings": [{"issue": "no audio track", "severity": "Critical"}]}
+        with pytest.raises(CheckpointValidationError, match="REVIEW VIOLATION"):
+            _write(tmp_path, review)
+
+    @pytest.mark.parametrize("severity", ["suggestion", "nitpick", "P1"])
+    def test_non_blocking_words_do_not_block(self, tmp_path, severity):
+        review = {"findings": [{"issue": "wordy line", "severity": severity}]}
+        _assert_not_review_blocked(tmp_path, review)
+
+    def test_critical_does_not_block_a_non_blocking_pipeline(self, tmp_path):
+        """The vocabulary mapping must not turn every pipeline into a blocker."""
+        review = {"findings": [{"issue": "no audio track", "severity": "critical"}]}
+        try:
+            write_checkpoint(
+                tmp_path, "proj", "script", "completed",
+                artifacts={"script": _script()},
+                pipeline_type="cinematic",
+                human_approved=True,
+                review=review,
+            )
+        except CheckpointValidationError as error:
+            assert "REVIEW VIOLATION" not in str(error), error
